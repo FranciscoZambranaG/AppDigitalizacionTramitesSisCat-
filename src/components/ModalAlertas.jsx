@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    backgroundColor: palette.surfaceDark,
+    backgroundColor: palette.primaryDeep,
     paddingVertical: 14,
     paddingHorizontal: 36,
     borderRadius: radius.pill,

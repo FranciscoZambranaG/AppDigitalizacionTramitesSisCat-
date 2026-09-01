@@ -9,6 +9,7 @@ import { loginStyles as styles } from './styles/LoginStyles';
 import { useAuth } from '../../hooks/AuthProvider';
 import { useWifiLost } from '../../hooks/WifiLostProvider';
 import banner from '../../assets/banner.png';
+import { components as themeComponents } from '../../utils/theme';
 
 const Login = () => {
   const [username, setUsername] = useState('');
@@ -145,6 +146,7 @@ const Login = () => {
           />
 
           <Animatable.Text animation="fadeInDown" delay={100} style={styles.title}>DigiD</Animatable.Text>
+          <View style={themeComponents.titleAccent} />
 
           {generalError ? (
             <Animatable.Text animation="fadeInLeft" style={styles.generalError}>{generalError}</Animatable.Text>

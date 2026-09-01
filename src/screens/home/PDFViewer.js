@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   pdf: { flex: 1, width: '100%', height: '100%' },
   info: { ...typography.body, color: palette.textSecondary, textAlign: 'center', marginBottom: spacing.xl },
   button: {
-    backgroundColor: palette.surfaceDark,
+    backgroundColor: palette.primaryDeep,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: radius.pill,

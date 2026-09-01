@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
   searchButton: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
-    backgroundColor: palette.surfaceDark,
+    backgroundColor: palette.primaryDeep,
     borderRadius: radius.pill,
   },
   searchText: { ...typography.button, fontSize: 14, color: palette.textOnDark },

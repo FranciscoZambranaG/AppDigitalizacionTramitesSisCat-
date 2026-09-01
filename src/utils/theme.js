@@ -108,9 +108,9 @@ export const components = {
     borderRadius: radius.cardHero,
     padding: spacing.xxl,
   },
-  // Botón primario del sistema: pill negro, texto blanco (patrón "Stoic").
+  // Botón primario del sistema: pill en celeste institucional (primaryDeep), texto blanco.
   buttonPrimary: {
-    backgroundColor: palette.surfaceDark,
+    backgroundColor: palette.primaryDeep,
     borderRadius: radius.pill,
     paddingVertical: 16,
     paddingHorizontal: 32,
@@ -150,6 +150,14 @@ export const components = {
     fontFamily: fonts.regular,
     fontSize: 15,
     color: palette.textPrimary,
+  },
+  // Acento institucional (secondary) bajo los títulos H1 de cada pantalla.
+  titleAccent: {
+    width: 44,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: palette.secondary,
+    marginBottom: spacing.sm,
   },
   // Overlay de modales
   modalOverlay: {

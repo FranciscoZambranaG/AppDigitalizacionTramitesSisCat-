@@ -64,7 +64,7 @@ export const loginStyles = StyleSheet.create({
     alignSelf: 'stretch',
     maxWidth: 400,
     width: '100%',
-    backgroundColor: palette.surfaceDark,
+    backgroundColor: palette.primaryDeep,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: radius.pill,

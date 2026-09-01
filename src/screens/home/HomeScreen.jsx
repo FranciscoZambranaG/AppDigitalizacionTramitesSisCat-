@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text, Image, TextInput } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { crearPdfDesdeImagenes } from '../../utils/crearPdfDesdeImagenes';
 import { ActivityIndicator } from 'react-native-paper';
@@ -16,7 +17,7 @@ import { redimensionarImagen } from '../../utils/redimensionarImagen';
 import { useAuth } from '../../hooks/AuthProvider';
 import ModalAlerta from '../../components/ModalAlertas';
 import { abrirSelectorArchivo } from '../../utils/abrirSelectorArchivo';
-import { palette, typography, spacing, radius, shadow, fonts } from '../../utils/theme';
+import { palette, typography, spacing, radius, shadow, fonts, components as themeComponents } from '../../utils/theme';
 
 const HomeScreen = () => {
   const [imagePath, setImagePath] = useState(null);
@@ -24,6 +25,7 @@ const HomeScreen = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const [modalDescripcion, setModalDescripcion] = useState(false);
   const [deleteFilePath, setDeleteFilePath] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -326,7 +328,7 @@ const HomeScreen = () => {
     : base;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ModalAlerta
         visible={modalVisible}
         title={modalTitle}
@@ -335,6 +337,7 @@ const HomeScreen = () => {
       />
 
       <Text style={styles.tramiteTitle}>Documentos escaneados</Text>
+      <View style={[themeComponents.titleAccent, { alignSelf: 'center' }]} />
 
       <Text style={styles.label}>Número de trámite (opcional)</Text>
       <TextInput
@@ -371,7 +374,7 @@ const HomeScreen = () => {
         </>
       )}
 
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: spacing.md + insets.bottom }]}>
         <NavButtons
           onLogout={handleLogout}
           onScan={handleScan}
@@ -390,7 +393,7 @@ const HomeScreen = () => {
           onConfirm={handleDescripcionConfirm}
         />
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 

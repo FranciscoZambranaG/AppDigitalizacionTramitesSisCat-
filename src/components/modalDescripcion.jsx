@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
         backgroundColor: palette.surface,
     },
     modalButton: {
-        backgroundColor: palette.surfaceDark,
+        backgroundColor: palette.primaryDeep,
         paddingVertical: 14,
         paddingHorizontal: 32,
         borderRadius: radius.pill,
