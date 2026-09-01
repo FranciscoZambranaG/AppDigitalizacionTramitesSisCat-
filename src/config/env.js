@@ -6,6 +6,9 @@ const extra = Constants.expoConfig?.extra ?? Constants.manifest?.extra ?? {};
 
 const FALLBACK_URL = 'https://bkdgd.catastrocbba.com';
 const FALLBACK_OCR_URL = 'https://ocr.catastrocbba.com/ocr/';
+// Servidor de Ollama corriendo localmente en la red del desarrollador
+// (OLLAMA_HOST=0.0.0.0). Cambiar via EXPO_PUBLIC_OLLAMA_URL cuando la IP cambie.
+const FALLBACK_OLLAMA_URL = 'http://10.0.0.113:11434';
 
 const DEFAULT_ALLOWED_FILE_TYPES = [
   'application/pdf',
@@ -37,4 +40,19 @@ export const PADDLE_OCR_URL = (
   FALLBACK_OCR_URL
 ).replace(/\/*$/, '/');
 
-export default { URL_BASE, ALLOWED_FILE_TYPES, PADDLE_OCR_URL };
+// URL base del servidor de Ollama. Sin "/" al final.
+export const OLLAMA_URL = (
+  process.env.EXPO_PUBLIC_OLLAMA_URL ||
+  extra.OLLAMA_URL ||
+  FALLBACK_OLLAMA_URL
+).replace(/\/+$/, '');
+
+// Nombre exacto del modelo cargado en Ollama.
+const FALLBACK_OLLAMA_MODEL = 'qwen3-vl:4b';
+
+export const OLLAMA_MODEL =
+  process.env.EXPO_PUBLIC_OLLAMA_MODEL ||
+  extra.OLLAMA_MODEL ||
+  FALLBACK_OLLAMA_MODEL;
+
+export default { URL_BASE, ALLOWED_FILE_TYPES, PADDLE_OCR_URL, OLLAMA_URL, OLLAMA_MODEL };

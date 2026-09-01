@@ -1,7 +1,36 @@
-import React from 'react'
-import { FlatList, View, TouchableOpacity, Image, Text, StyleSheet } from 'react-native'
+import React, { useState } from 'react'
+import { FlatList, View, TouchableOpacity, Text, StyleSheet } from 'react-native'
+import { Image as ExpoImage } from 'expo-image'
 import { Feather as Icon } from '@expo/vector-icons';
 import { palette, typography, spacing, radius, shadow, fonts } from '../utils/theme';
+import { getFileKind } from '../utils/mimeTypes';
+
+const pdfIcon = require('../assets/pdf-icon.png');
+
+// Miniatura de cada fila: si es una imagen se muestra la propia foto; si no,
+// el icono generico de documento. Si la carga falla (asset o red), se cae a un
+// icono vectorial en vez de dejar el espacio en blanco.
+function Thumbnail({ item }) {
+  const [failed, setFailed] = useState(false);
+  const isImage = getFileKind(item.name) === 'image';
+
+  if (failed) {
+    return (
+      <View style={[styles.image, styles.thumbFallback]}>
+        <Icon name={isImage ? 'image' : 'file-text'} size={20} color={palette.textSecondary} />
+      </View>
+    );
+  }
+
+  return (
+    <ExpoImage
+      source={isImage ? { uri: item.path } : pdfIcon}
+      style={styles.image}
+      contentFit={isImage ? 'cover' : 'contain'}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 function ListComponent({ data, onDelete, openPDF }) {
   return (
@@ -13,10 +42,7 @@ function ListComponent({ data, onDelete, openPDF }) {
           <TouchableOpacity
             style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
             onPress={() => openPDF(item.path)}>
-            <Image
-              source={require('../assets/pdf-icon.png')}
-              style={styles.image}
-            />
+            <Thumbnail item={item} />
             <View style={styles.infoContainer}>
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.date}>{item.descripcion}</Text>
@@ -44,7 +70,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...shadow.soft,
   },
-  image: { width: 48, height: 48, borderRadius: radius.sm },
+  image: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: palette.background },
+  thumbFallback: { alignItems: 'center', justifyContent: 'center' },
   infoContainer: { flex: 1, marginLeft: spacing.md },
   name: { ...typography.body, fontFamily: fonts.semibold },
   date: { ...typography.caption, marginTop: 2 },
