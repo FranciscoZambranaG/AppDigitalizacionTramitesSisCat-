@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Image,
   ActivityIndicator,
   StyleSheet,
   KeyboardAvoidingView,
@@ -13,20 +14,52 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Feather as Icon } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import { palette, typography, spacing, radius, shadow } from '../../utils/theme';
 import { OLLAMA_URL, OLLAMA_MODEL } from '../../config/env';
+import fileServices from '../../services/fileServices';
 
-// Pantalla "Estudiar con la IA": envia un prompt de texto al modelo de Ollama
-// que corre localmente en la red del desarrollador (ver src/config/env.js ->
-// OLLAMA_URL / OLLAMA_MODEL) y muestra la respuesta.
+// El modelo local (Ollama) tiene que generar la respuesta completa antes de
+// devolver nada (stream: false), asi que se le da un margen generoso antes
+// de considerar que la conexion esta caida en vez de solo lenta.
+const TIMEOUT_MS = 120000;
+
+// Pantalla "Estudiar con la IA": manda las paginas escaneadas del documento
+// (guardadas por fileServices.savePages) junto con la pregunta del usuario
+// al modelo de vision de Ollama que corre localmente (ver src/config/env.js
+// -> OLLAMA_URL / OLLAMA_MODEL) y muestra la respuesta.
 const AIStudyScreen = ({ route }) => {
   const navigation = useNavigation();
   const { fileName } = route?.params || {};
+
+  const [pageImages, setPageImages] = useState([]);
+  const [cargandoPaginas, setCargandoPaginas] = useState(true);
 
   const [mensaje, setMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
   const [respuesta, setRespuesta] = useState('');
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (!fileName) {
+        setCargandoPaginas(false);
+        return;
+      }
+      try {
+        const paginas = await fileServices.getPages(fileName);
+        if (!cancelado) setPageImages(paginas);
+      } catch (e) {
+        console.log('[AIStudyScreen] error obteniendo paginas escaneadas', e);
+      } finally {
+        if (!cancelado) setCargandoPaginas(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [fileName]);
 
   const enviarMensaje = async () => {
     if (!mensaje.trim() || cargando) return;
@@ -35,15 +68,28 @@ const AIStudyScreen = ({ route }) => {
     setError(null);
     setRespuesta('');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     try {
+      // El modelo de vision espera cada imagen como string base64 (sin el
+      // prefijo "data:image/...;base64,").
+      const images = await Promise.all(
+        pageImages.map((uri) =>
+          FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }),
+        ),
+      );
+
       const res = await fetch(`${OLLAMA_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: OLLAMA_MODEL, // nombre del modelo, configurado en src/config/env.js
+          model: OLLAMA_MODEL,
           prompt: mensaje,
           stream: false,
+          ...(images.length ? { images } : {}),
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -54,11 +100,19 @@ const AIStudyScreen = ({ route }) => {
       setRespuesta(data.response ?? '');
     } catch (e) {
       console.log('[AIStudyScreen] error consultando Ollama', e);
-      setError(
-        'No se pudo conectar con el modelo de IA. Verifica que el servidor de Ollama este ' +
-          'corriendo y que el celular este en la misma red.',
-      );
+      if (e.name === 'AbortError') {
+        setError(
+          'El modelo esta tardando demasiado en responder (mas de 2 minutos) y se cancelo la ' +
+            'consulta. Puede que el servidor este sobrecargado o inaccesible.',
+        );
+      } else {
+        setError(
+          'No se pudo conectar con el modelo de IA. Verifica que el servidor de Ollama este ' +
+            'corriendo y que el celular este en la misma red.',
+        );
+      }
     } finally {
+      clearTimeout(timeoutId);
       setCargando(false);
     }
   };
@@ -88,6 +142,33 @@ const AIStudyScreen = ({ route }) => {
               Documento: {fileName}
             </Text>
           ) : null}
+
+          {cargandoPaginas ? (
+            <View style={styles.pagesRow}>
+              <ActivityIndicator size="small" color={palette.primaryDeep} />
+              <Text style={styles.pagesHint}>Cargando paginas escaneadas...</Text>
+            </View>
+          ) : pageImages.length > 0 ? (
+            <View style={styles.pagesSection}>
+              <Text style={styles.pagesHint}>
+                La IA va a analizar estas {pageImages.length}{' '}
+                {pageImages.length === 1 ? 'pagina' : 'paginas'}:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.pagesRowContent}>
+                {pageImages.map((uri) => (
+                  <Image key={uri} source={{ uri }} style={styles.pageThumb} />
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <Text style={styles.pagesHint}>
+              No se encontraron imagenes escaneadas para este documento; la IA solo va a responder
+              en base a tu pregunta.
+            </Text>
+          )}
 
           <View style={styles.responseBox}>
             {cargando ? (
@@ -156,6 +237,17 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 36 },
   scrollContent: { padding: spacing.xl, flexGrow: 1 },
   contextLabel: { ...typography.caption, marginBottom: spacing.md },
+  pagesSection: { marginBottom: spacing.lg },
+  pagesHint: { ...typography.caption, marginBottom: spacing.sm },
+  pagesRow: { flexDirection: 'row', alignItems: 'center' },
+  pagesRowContent: { flexDirection: 'row', alignItems: 'center' },
+  pageThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.sm,
+    marginRight: spacing.sm,
+    backgroundColor: palette.surface,
+  },
   responseBox: {
     flex: 1,
     minHeight: 200,
