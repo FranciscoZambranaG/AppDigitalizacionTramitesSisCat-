@@ -1,15 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, Image } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { View, StyleSheet, Text, Image, TextInput } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { crearPdfDesdeImagenes } from '../../utils/crearPdfDesdeImagenes';
 import { ActivityIndicator } from 'react-native-paper';
 import scanService from '../../services/scanService';
 import fileServices from '../../services/fileServices';
 import requestStoragePermission from '../../utils/requestPermmissions';
 import ModalDescripcion from '../../components/modalDescripcion';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import tramiteService from '../../services/tramiteService';
 import WarningModal from '../../components/WarningModal';
 import FilterComponent from '../../components/FilterComponent';
 import ListComponent from '../../components/ListComponent';
@@ -17,7 +15,7 @@ import NavButtons from '../../components/NavButtons';
 import { redimensionarImagen } from '../../utils/redimensionarImagen';
 import { useAuth } from '../../hooks/AuthProvider';
 import ModalAlerta from '../../components/ModalAlertas';
-import baseUrl from '../../api/baseUrl';
+import http from '../../api/http';
 import { abrirSelectorArchivo } from '../../utils/abrirSelectorArchivo';
 
 const HomeScreen = () => {
@@ -26,28 +24,26 @@ const HomeScreen = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigation = useNavigation();
-  const route = useRoute();
   const [modalDescripcion, setModalDescripcion] = useState(false);
   const [deleteFilePath, setDeleteFilePath] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [scannedImages, setScannedImages] = useState([]);
 
-  const nroTramite2 = String(route.params?.nroTramite2);
-  const { authIds } = useAuth();
+  // Antes el N° de tramite venia de la pantalla de Tramites. Ahora se ingresa aqui.
+  const [nroTramite, setNroTramite] = useState('');
 
-  const idUsuario = authIds.idUsuario;
-  const funcionario = authIds.idFuncionario;
-  const unidad = authIds.idUnidad;
+  const { user, logout } = useAuth();
+  const idUsuario = user?.preferred_username || user?.sub || '';
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalDescription, setModalDescription] = useState('');
 
   const getImageDimensions = (uri) => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       Image.getSize(uri, (width, height) => {
         resolve({ width, height });
-      }, (error) => {
+      }, () => {
         resolve({ width: 0, height: 1 });
       });
     });
@@ -74,39 +70,24 @@ const HomeScreen = () => {
         setIsLoading(false);
       }
     });
-  }, [nroTramite2]);
+  }, []);
 
-  const datosTramite = {
-    id_funcionario: funcionario,
-    id_unidad: unidad,
-    nro_tramite: nroTramite2
+  const tramiteValido = () => {
+    if (!nroTramite.trim()) {
+      showModal('Alerta', 'Ingrese el número de trámite antes de continuar.');
+      return false;
+    }
+    return true;
   };
 
   const handleScan = () => {
-    validarYAccionar(() => scanDocument());
+    if (!tramiteValido()) return;
+    scanDocument();
   };
 
-  const valSendFile = file => {
-    validarYAccionar(() => handleSendFile(file));
-  };
-
-  const validarYAccionar = async (onSuccess) => {
-    try {
-      const respuesta = await tramiteService.validarTramite(datosTramite);
-      if (respuesta.is_in_bandeja === true) {
-        onSuccess();
-      } else {
-        showModal(
-          'Alerta',
-          'Ya no tiene acceso a este tramite.'
-        );
-      }
-    } catch (error) {
-      showModal(
-        'Alerta',
-        'Por favor, compruebe su conexión de internet'
-      );
-    }
+  const valSendFile = (file) => {
+    if (!tramiteValido()) return;
+    handleSendFile(file);
   };
 
   const getFiles = async () => {
@@ -130,19 +111,9 @@ const HomeScreen = () => {
         };
       });
 
-      let filteredFiles = filesWithMetadata;
-      if (nroTramite2) {
-        filteredFiles = filesWithMetadata.filter(file =>
-          file.tramiteAsociado === nroTramite2
-        );
-      }
-
-      setPdfs(filteredFiles);
+      setPdfs(filesWithMetadata);
     } catch (error) {
-      showModal(
-        'Alerta',
-        'Hubo un problema al obtener los archivos.'
-      );
+      showModal('Alerta', 'Hubo un problema al obtener los archivos.');
     } finally {
       setIsLoading(false);
     }
@@ -160,9 +131,7 @@ const HomeScreen = () => {
         if (isImage) {
           try {
             const { width, height } = await getImageDimensions(selectedFile.uri);
-
             const rotation = width > height ? 90 : 0;
-
             const resized = await redimensionarImagen(selectedFile.uri, { rotation });
             await createDocument([resized.uri], descripcionInput);
           } catch (resizeError) {
@@ -181,10 +150,7 @@ const HomeScreen = () => {
   };
 
   const procesarArchivoOriginal = async (file, descripcionInput) => {
-    const copied = await fileServices.copyOriginalFile(
-      file.uri,
-      file.name,
-    );
+    const copied = await fileServices.copyOriginalFile(file.uri, file.name);
     const name = copied.split('/').pop();
 
     const rawD = await AsyncStorage.getItem('descripciones');
@@ -192,10 +158,10 @@ const HomeScreen = () => {
     mapD[name] = descripcionInput;
     await AsyncStorage.setItem('descripciones', JSON.stringify(mapD));
 
-    if (nroTramite2) {
+    if (nroTramite) {
       const rawT = await AsyncStorage.getItem('tramites');
       const mapT = rawT ? JSON.parse(rawT) : {};
-      mapT[name] = nroTramite2;
+      mapT[name] = nroTramite;
       await AsyncStorage.setItem('tramites', JSON.stringify(mapT));
     }
 
@@ -214,15 +180,12 @@ const HomeScreen = () => {
         for (const uri of newImages) {
           try {
             const { width, height } = await getImageDimensions(uri);
-
             const rotation = width > height ? 90 : 0;
-
             const resized = await redimensionarImagen(uri, { rotation });
             if (resized?.uri) {
               imagenesRedimensionadas.push(resized.uri);
             }
           } catch (resizeError) {
-            // si falla el redimensionado, se usa la imagen original
             imagenesRedimensionadas.push(uri);
           }
         }
@@ -236,10 +199,7 @@ const HomeScreen = () => {
         }
       }
     } catch (error) {
-      showModal(
-        'Alerta',
-        'Ocurrió un error durante el escaneo'
-      );
+      showModal('Alerta', 'Ocurrió un error durante el escaneo');
     } finally {
       setIsLoading(false);
     }
@@ -247,24 +207,16 @@ const HomeScreen = () => {
 
   const createDocument = async (imagePaths, descripcionInput) => {
     if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
-      showModal(
-        'Alerta',
-        'No hay imágenes para crear el documento'
-      );
+      showModal('Alerta', 'No hay imágenes para crear el documento');
       return;
     }
 
     setIsLoading(true);
     try {
-      const validPaths = imagePaths.filter(
-        path => path && typeof path === 'string',
-      );
+      const validPaths = imagePaths.filter(path => path && typeof path === 'string');
 
       if (validPaths.length === 0) {
-        showModal(
-          'Alerta',
-          'No se encontraron imágenes válidas para crear el PDF.',
-        );
+        showModal('Alerta', 'No se encontraron imágenes válidas para crear el PDF.');
         return;
       }
 
@@ -283,27 +235,20 @@ const HomeScreen = () => {
       descripciones[copiedFileName] = descripcionInput;
       await AsyncStorage.setItem('descripciones', JSON.stringify(descripciones));
 
-      if (nroTramite2) {
+      if (nroTramite) {
         const storedTramites = await AsyncStorage.getItem('tramites');
         const tramites = storedTramites ? JSON.parse(storedTramites) : {};
-        tramites[copiedFileName] = nroTramite2;
+        tramites[copiedFileName] = nroTramite;
         await AsyncStorage.setItem('tramites', JSON.stringify(tramites));
       }
 
       setScannedImages([]);
       await getFiles();
 
-      const file = {
-        name: copiedFileName,
-        path: copiedFilePath,
-      };
+      const file = { name: copiedFileName, path: copiedFilePath };
       await handleSendFile(file);
-
     } catch (error) {
-      showModal(
-        'Alerta',
-        'No se pudo crear el documento'
-      );
+      showModal('Alerta', 'No se pudo crear el documento');
     } finally {
       setIsLoading(false);
     }
@@ -313,10 +258,7 @@ const HomeScreen = () => {
     const fileExists = await fileServices.exists(filePath);
 
     if (!fileExists) {
-      showModal(
-        'Alerta',
-        'El archivo no existe'
-      );
+      showModal('Alerta', 'El archivo no existe');
       return;
     }
 
@@ -324,10 +266,7 @@ const HomeScreen = () => {
       const fullPath = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
       navigation.navigate('PDFViewer', { filePath: fullPath });
     } catch (error) {
-      showModal(
-        'Alerta',
-        'No se pudo abrir el archivo PDF'
-      );
+      showModal('Alerta', 'No se pudo abrir el archivo PDF');
     }
   };
 
@@ -359,17 +298,11 @@ const HomeScreen = () => {
           await AsyncStorage.setItem('tramites', JSON.stringify(tramites));
         }
       }
-      showModal(
-        'Éxito',
-        'Archivo eliminado correctamente'
-      );
+      showModal('Éxito', 'Archivo eliminado correctamente');
 
       await getFiles();
     } catch (error) {
-      showModal(
-        'Alerta',
-        'No se pudo eliminar el archivo'
-      );
+      showModal('Alerta', 'No se pudo eliminar el archivo');
     } finally {
       setIsLoading(false);
       setDeleteFilePath(null);
@@ -378,19 +311,13 @@ const HomeScreen = () => {
 
   const handleSendFile = async (file) => {
     try {
-      if (!nroTramite2) {
-        showModal(
-          'Alerta',
-          'No hay un trámite seleccionado. Por favor, seleccione un trámite primero'
-        );
+      if (!nroTramite) {
+        showModal('Alerta', 'No hay un trámite seleccionado. Ingrese el número de trámite primero');
         return;
       }
 
       if (!file) {
-        showModal(
-          'Alerta',
-          'No se ha seleccionado ningún archivo.'
-        );
+        showModal('Alerta', 'No se ha seleccionado ningún archivo.');
         return;
       }
 
@@ -400,7 +327,7 @@ const HomeScreen = () => {
       const descripciones = stored ? JSON.parse(stored) : {};
       const descripcion = descripciones[file.name] || '';
 
-      await sendFile(file, descripcion, nroTramite2);
+      await sendFile(file, descripcion, nroTramite);
 
       await fileServices.eliminateFile(file.path);
 
@@ -432,10 +359,7 @@ const HomeScreen = () => {
   const sendFile = async (file, descripcionInput, tramiteNumber) => {
     setIsLoading(true);
     if (!file || !file.path || !file.name) {
-      showModal(
-        'Alerta',
-        'Archivo no válido.'
-      );
+      showModal('Alerta', 'Archivo no válido.');
       return;
     }
     try {
@@ -444,39 +368,21 @@ const HomeScreen = () => {
       let mimeType = 'application/octet-stream';
 
       switch (extension) {
-        case 'pdf':
-          mimeType = 'application/pdf';
-          break;
+        case 'pdf': mimeType = 'application/pdf'; break;
         case 'jpg':
-        case 'jpeg':
-          mimeType = 'image/jpeg';
-          break;
-        case 'png':
-          mimeType = 'image/png';
-          break;
-        case 'doc':
-          mimeType = 'application/msword';
-          break;
-        case 'docx':
-          mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-          break;
-        case 'xls':
-          mimeType = 'application/vnd.ms-excel';
-          break;
-        case 'xlsx':
-          mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-          break;
-        case 'zip':
-          mimeType = 'application/zip';
-          break;
-        case 'rar':
-          mimeType = 'application/x-rar-compressed';
-          break;
+        case 'jpeg': mimeType = 'image/jpeg'; break;
+        case 'png': mimeType = 'image/png'; break;
+        case 'doc': mimeType = 'application/msword'; break;
+        case 'docx': mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; break;
+        case 'xls': mimeType = 'application/vnd.ms-excel'; break;
+        case 'xlsx': mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; break;
+        case 'zip': mimeType = 'application/zip'; break;
+        case 'rar': mimeType = 'application/x-rar-compressed'; break;
       }
 
       const formData = new FormData();
-      formData.append('idUsuario', idUsuario);
-      formData.append('nroTramite', nroTramite2);
+      formData.append('idUsuario', String(idUsuario));
+      formData.append('nroTramite', String(tramiteNumber));
       formData.append('descripcion', descripcionInput);
       formData.append('file', {
         uri: fileUri,
@@ -484,20 +390,18 @@ const HomeScreen = () => {
         name: file.name,
       });
 
-      await axios.postForm(`${baseUrl}/upload_document/`, formData, {
+      await http.post('/upload_document/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setIsLoading(false);
-      showModal(
-        'Atención',
-        'El documento fue enviado correctamente.'
-      );
+      showModal('Atención', 'El documento fue enviado correctamente.');
     } catch (error) {
       throw error;
     }
   };
 
   const handleAttach = async () => {
+    if (!tramiteValido()) return;
     try {
       const file = await abrirSelectorArchivo();
       if (!file || !file.uri || !file.name) {
@@ -511,12 +415,21 @@ const HomeScreen = () => {
     }
   };
 
+  const handleLogout = async () => {
+    await logout();
+    // El navegador vuelve a Login solo al cerrarse la sesión.
+  };
+
+  const base = nroTramite.trim()
+    ? pdfs.filter(doc => doc.tramiteAsociado === nroTramite.trim())
+    : pdfs;
+
   const myFilter = search
-    ? pdfs.filter(doc =>
+    ? base.filter(doc =>
       doc.name.toLowerCase().includes(search.toLowerCase()) ||
       (typeof doc.descripcion === 'string' && doc.descripcion.toLowerCase().includes(search.toLowerCase()))
     )
-    : pdfs;
+    : base;
 
   return (
     <View style={styles.container}>
@@ -528,11 +441,17 @@ const HomeScreen = () => {
       />
 
       <Text style={styles.tramiteTitle}>Bandeja de documentos por enviar</Text>
-      {nroTramite2 && (
-        <Text style={styles.tramiteTitledesc}>
-          Trámite seleccionado: {nroTramite2}
-        </Text>
-      )}
+
+      <Text style={styles.label}>Número de trámite</Text>
+      <TextInput
+        style={styles.tramiteInput}
+        placeholder="Ej. 12345/2026"
+        placeholderTextColor="#888"
+        value={nroTramite}
+        onChangeText={setNroTramite}
+        autoCapitalize="characters"
+      />
+
       <FilterComponent search={search} setSearch={setSearch} />
       {isLoading ? (
         <View style={styles.loaderContainer}>
@@ -540,11 +459,11 @@ const HomeScreen = () => {
         </View>
       ) : (
         <>
-          {pdfs.length === 0 ? (
+          {myFilter.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                {nroTramite2
-                  ? `No hay documentos pendientes por enviar para el trámite ${nroTramite2}`
+                {nroTramite.trim()
+                  ? `No hay documentos pendientes por enviar para el trámite ${nroTramite.trim()}`
                   : 'No hay documentos disponibles por enviar.'}
               </Text>
             </View>
@@ -562,12 +481,7 @@ const HomeScreen = () => {
 
       <View style={styles.bottomNav}>
         <NavButtons
-          onNavigate={() =>
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Inbox' }],
-            })
-          }
+          onLogout={handleLogout}
           onScan={handleScan}
           onAttach={handleAttach}
         />
@@ -597,12 +511,20 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#2E2E2E',
   },
-  tramiteTitledesc: {
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: 'normal',
-    marginBottom: 8,
-    color: '#2E2E2E',
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#37474F',
+    marginBottom: 4,
+  },
+  tramiteInput: {
+    borderWidth: 1,
+    borderColor: '#3f008c',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
   bottomNav: {
     position: 'absolute',
