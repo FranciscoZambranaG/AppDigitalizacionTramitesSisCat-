@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, TextInput, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { palette, typography, spacing, radius, fonts } from '../utils/theme';
 
 const FilterComponent = ({search, setSearch}) => {
   return (
@@ -7,6 +8,7 @@ const FilterComponent = ({search, setSearch}) => {
     <TextInput
         style={styles.searchInput}
         placeholder="Buscar"
+        placeholderTextColor={palette.textSecondary}
         value={search}
         onChangeText={setSearch}
     />
@@ -18,10 +20,26 @@ const FilterComponent = ({search, setSearch}) => {
 }
 
 const styles = StyleSheet.create({
-  searchContainer: { flexDirection: 'row', marginBottom: 10, alignItems: 'center' },
-  searchInput: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, backgroundColor: 'white' },
-  searchButton: { marginLeft: 10, padding: 10, backgroundColor: '#3f008c', borderRadius: 8 },
-  searchText: { color: 'white', fontWeight: 'bold' },
+  searchContainer: { flexDirection: 'row', marginBottom: spacing.lg, alignItems: 'center', gap: spacing.sm },
+  searchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: palette.surface,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    color: palette.textPrimary,
+  },
+  searchButton: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    backgroundColor: palette.surfaceDark,
+    borderRadius: radius.pill,
+  },
+  searchText: { ...typography.button, fontSize: 14, color: palette.textOnDark },
 })
 
 export default FilterComponent

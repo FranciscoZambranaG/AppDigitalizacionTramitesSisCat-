@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Feather as Icon } from '@expo/vector-icons';
+import { palette, typography, spacing, radius, shadow } from '../utils/theme';
 
 export const WifiOffModal = ({ visible, onCLose }) => {
     return (
@@ -33,37 +34,45 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: "center",
         alignItems: "center",
-        backgroundColor: "rgba(0,0,0,0.7)", // Más oscuro para mejor visibilidad
+        backgroundColor: "rgba(17, 17, 17, 0.55)",
+        padding: spacing.xl,
     },
     modalContainer: {
-        width: '80%', // Mejor responsividad
-        padding: 20,
-        backgroundColor: "white",
-        borderRadius: 10,
+        width: '100%',
+        maxWidth: 420,
+        padding: spacing.xxl,
+        backgroundColor: palette.surface,
+        borderRadius: radius.lg,
         alignItems: "center",
+        ...shadow.card,
     },
     icon: {
-        marginBottom: 20,
+        marginBottom: spacing.lg,
     },
     message: {
-        fontSize: 16,
+        ...typography.body,
+        color: palette.textSecondary,
         textAlign: "center",
-        lineHeight: 24, // Mejor legibilidad
+        lineHeight: 22,
     },
     buttonContainer: {
         flexDirection: "row",
-        justifyContent: "space-between",
+        justifyContent: "center",
         width: "100%",
+        marginTop: spacing.xl,
     },
     button: {
         flex: 1,
-        padding: 10,
-        marginHorizontal: 5,
-        borderRadius: 5,
+        paddingVertical: 14,
+        borderRadius: radius.pill,
         alignItems: "center",
+        backgroundColor: palette.surface,
+        borderWidth: 1,
+        borderColor: palette.border,
     },
     buttonText: {
-        color: "#e74c3c",
-        fontWeight: "bold",
+        ...typography.button,
+        fontSize: 15,
+        color: palette.textPrimary,
     },
 });

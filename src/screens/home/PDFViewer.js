@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
+import { palette, typography, spacing, radius, shadow } from '../../utils/theme';
 
 // Reemplaza a react-native-pdf.
 // Expo Go no trae un visor de PDF embebido para Android. En iOS el WebView
@@ -55,7 +56,7 @@ const PDFViewer = ({ route }) => {
   return (
     <View style={[styles.container, styles.centered]}>
       {abriendo ? (
-        <ActivityIndicator size="large" color="#3f008c" />
+        <ActivityIndicator size="large" color={palette.primaryDeep} />
       ) : (
         <>
           <Text style={styles.info}>
@@ -71,12 +72,18 @@ const PDFViewer = ({ route }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  centered: { justifyContent: 'center', alignItems: 'center', padding: 24 },
+  container: { flex: 1, backgroundColor: palette.background },
+  centered: { justifyContent: 'center', alignItems: 'center', padding: spacing.xxl },
   pdf: { flex: 1, width: '100%', height: '100%' },
-  info: { fontSize: 15, color: '#333', textAlign: 'center', marginBottom: 20 },
-  button: { backgroundColor: '#3f008c', paddingVertical: 12, paddingHorizontal: 28, borderRadius: 8 },
-  buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  info: { ...typography.body, color: palette.textSecondary, textAlign: 'center', marginBottom: spacing.xl },
+  button: {
+    backgroundColor: palette.surfaceDark,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: radius.pill,
+    ...shadow.soft,
+  },
+  buttonText: { ...typography.button, color: palette.textOnDark },
 });
 
 export default PDFViewer;

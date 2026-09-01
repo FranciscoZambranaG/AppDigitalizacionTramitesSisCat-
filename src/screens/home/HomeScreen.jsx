@@ -15,8 +15,8 @@ import NavButtons from '../../components/NavButtons';
 import { redimensionarImagen } from '../../utils/redimensionarImagen';
 import { useAuth } from '../../hooks/AuthProvider';
 import ModalAlerta from '../../components/ModalAlertas';
-import http from '../../api/http';
 import { abrirSelectorArchivo } from '../../utils/abrirSelectorArchivo';
+import { palette, typography, spacing, radius, shadow, fonts } from '../../utils/theme';
 
 const HomeScreen = () => {
   const [imagePath, setImagePath] = useState(null);
@@ -29,11 +29,11 @@ const HomeScreen = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [scannedImages, setScannedImages] = useState([]);
 
-  // Antes el N° de tramite venia de la pantalla de Tramites. Ahora se ingresa aqui.
+  // El N° de tramite es opcional: sirve solo como referencia guardada junto al
+  // documento. NO bloquea el escaneo.
   const [nroTramite, setNroTramite] = useState('');
 
-  const { user, logout } = useAuth();
-  const idUsuario = user?.preferred_username || user?.sub || '';
+  const { logout } = useAuth();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
@@ -72,22 +72,8 @@ const HomeScreen = () => {
     });
   }, []);
 
-  const tramiteValido = () => {
-    if (!nroTramite.trim()) {
-      showModal('Alerta', 'Ingrese el número de trámite antes de continuar.');
-      return false;
-    }
-    return true;
-  };
-
   const handleScan = () => {
-    if (!tramiteValido()) return;
     scanDocument();
-  };
-
-  const valSendFile = (file) => {
-    if (!tramiteValido()) return;
-    handleSendFile(file);
   };
 
   const getFiles = async () => {
@@ -116,6 +102,40 @@ const HomeScreen = () => {
       showModal('Alerta', 'Hubo un problema al obtener los archivos.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const guardarMetadatos = async ({ fileName, descripcion, paginas }) => {
+    const rawD = await AsyncStorage.getItem('descripciones');
+    const mapD = rawD ? JSON.parse(rawD) : {};
+    mapD[fileName] = descripcion;
+    await AsyncStorage.setItem('descripciones', JSON.stringify(mapD));
+
+    const tramite = nroTramite.trim();
+    if (tramite) {
+      const rawT = await AsyncStorage.getItem('tramites');
+      const mapT = rawT ? JSON.parse(rawT) : {};
+      mapT[fileName] = tramite;
+      await AsyncStorage.setItem('tramites', JSON.stringify(mapT));
+    }
+
+    if (paginas && paginas.length) {
+      const rawP = await AsyncStorage.getItem('paginas');
+      const mapP = rawP ? JSON.parse(rawP) : {};
+      mapP[fileName] = paginas;
+      await AsyncStorage.setItem('paginas', JSON.stringify(mapP));
+    }
+  };
+
+  const borrarMetadatos = async (fileName) => {
+    for (const key of ['descripciones', 'tramites', 'paginas']) {
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) continue;
+      const map = JSON.parse(raw);
+      if (map[fileName] !== undefined) {
+        delete map[fileName];
+        await AsyncStorage.setItem(key, JSON.stringify(map));
+      }
     }
   };
 
@@ -149,24 +169,13 @@ const HomeScreen = () => {
     }
   };
 
+  // Copia un archivo adjuntado (no imagen) tal cual al almacenamiento local.
   const procesarArchivoOriginal = async (file, descripcionInput) => {
     const copied = await fileServices.copyOriginalFile(file.uri, file.name);
     const name = copied.split('/').pop();
-
-    const rawD = await AsyncStorage.getItem('descripciones');
-    const mapD = rawD ? JSON.parse(rawD) : {};
-    mapD[name] = descripcionInput;
-    await AsyncStorage.setItem('descripciones', JSON.stringify(mapD));
-
-    if (nroTramite) {
-      const rawT = await AsyncStorage.getItem('tramites');
-      const mapT = rawT ? JSON.parse(rawT) : {};
-      mapT[name] = nroTramite;
-      await AsyncStorage.setItem('tramites', JSON.stringify(mapT));
-    }
-
+    await guardarMetadatos({ fileName: name, descripcion: descripcionInput });
     await getFiles();
-    await handleSendFile({ name, path: copied });
+    showModal('Listo', 'El documento se guardó en la aplicación.');
   };
 
   const scanDocument = async () => {
@@ -205,6 +214,7 @@ const HomeScreen = () => {
     }
   };
 
+  // Arma el PDF (para ver) y guarda ademas cada pagina como JPEG (para la IA futura).
   const createDocument = async (imagePaths, descripcionInput) => {
     if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
       showModal('Alerta', 'No hay imágenes para crear el documento');
@@ -226,27 +236,20 @@ const HomeScreen = () => {
         throw new Error('El archivo PDF no se creó correctamente.');
       }
 
-      const originalFilePath = result.filePath;
-      const copiedFilePath = await fileServices.createPDF(originalFilePath);
+      const copiedFilePath = await fileServices.createPDF(result.filePath);
       const copiedFileName = copiedFilePath.split('/').pop();
 
-      const stored = await AsyncStorage.getItem('descripciones');
-      const descripciones = stored ? JSON.parse(stored) : {};
-      descripciones[copiedFileName] = descripcionInput;
-      await AsyncStorage.setItem('descripciones', JSON.stringify(descripciones));
+      const paginas = await fileServices.savePages(validPaths, copiedFileName);
 
-      if (nroTramite) {
-        const storedTramites = await AsyncStorage.getItem('tramites');
-        const tramites = storedTramites ? JSON.parse(storedTramites) : {};
-        tramites[copiedFileName] = nroTramite;
-        await AsyncStorage.setItem('tramites', JSON.stringify(tramites));
-      }
+      await guardarMetadatos({
+        fileName: copiedFileName,
+        descripcion: descripcionInput,
+        paginas,
+      });
 
       setScannedImages([]);
       await getFiles();
-
-      const file = { name: copiedFileName, path: copiedFilePath };
-      await handleSendFile(file);
+      showModal('Listo', 'El documento se guardó en la aplicación.');
     } catch (error) {
       showModal('Alerta', 'No se pudo crear el documento');
     } finally {
@@ -280,26 +283,9 @@ const HomeScreen = () => {
     try {
       const fileName = deleteFilePath.split('/').pop();
       await fileServices.eliminateFile(deleteFilePath);
-
-      const storedDescripciones = await AsyncStorage.getItem('descripciones');
-      if (storedDescripciones) {
-        const descripciones = JSON.parse(storedDescripciones);
-        if (descripciones[fileName]) {
-          delete descripciones[fileName];
-          await AsyncStorage.setItem('descripciones', JSON.stringify(descripciones));
-        }
-      }
-
-      const storedTramites = await AsyncStorage.getItem('tramites');
-      if (storedTramites) {
-        const tramites = JSON.parse(storedTramites);
-        if (tramites[fileName]) {
-          delete tramites[fileName];
-          await AsyncStorage.setItem('tramites', JSON.stringify(tramites));
-        }
-      }
+      await fileServices.deletePages(fileName);
+      await borrarMetadatos(fileName);
       showModal('Éxito', 'Archivo eliminado correctamente');
-
       await getFiles();
     } catch (error) {
       showModal('Alerta', 'No se pudo eliminar el archivo');
@@ -309,99 +295,7 @@ const HomeScreen = () => {
     }
   };
 
-  const handleSendFile = async (file) => {
-    try {
-      if (!nroTramite) {
-        showModal('Alerta', 'No hay un trámite seleccionado. Ingrese el número de trámite primero');
-        return;
-      }
-
-      if (!file) {
-        showModal('Alerta', 'No se ha seleccionado ningún archivo.');
-        return;
-      }
-
-      setIsLoading(true);
-
-      const stored = await AsyncStorage.getItem('descripciones');
-      const descripciones = stored ? JSON.parse(stored) : {};
-      const descripcion = descripciones[file.name] || '';
-
-      await sendFile(file, descripcion, nroTramite);
-
-      await fileServices.eliminateFile(file.path);
-
-      if (descripciones[file.name]) {
-        delete descripciones[file.name];
-        await AsyncStorage.setItem('descripciones', JSON.stringify(descripciones));
-      }
-
-      const storedTramites = await AsyncStorage.getItem('tramites');
-      if (storedTramites) {
-        const tramites = JSON.parse(storedTramites);
-        if (tramites[file.name]) {
-          delete tramites[file.name];
-          await AsyncStorage.setItem('tramites', JSON.stringify(tramites));
-        }
-      }
-
-      await getFiles();
-    } catch (err) {
-      showModal(
-        'Alerta',
-        'El documento no puede ser enviado al sistema SisCat. Este documento ahora se encuentra en la bandeja de no enviados para que pueda intentar enviarlo de nuevo en otro momento.'
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const sendFile = async (file, descripcionInput, tramiteNumber) => {
-    setIsLoading(true);
-    if (!file || !file.path || !file.name) {
-      showModal('Alerta', 'Archivo no válido.');
-      return;
-    }
-    try {
-      const fileUri = file.path.startsWith('file://') ? file.path : `file://${file.path}`;
-      const extension = file.name.split('.').pop().toLowerCase();
-      let mimeType = 'application/octet-stream';
-
-      switch (extension) {
-        case 'pdf': mimeType = 'application/pdf'; break;
-        case 'jpg':
-        case 'jpeg': mimeType = 'image/jpeg'; break;
-        case 'png': mimeType = 'image/png'; break;
-        case 'doc': mimeType = 'application/msword'; break;
-        case 'docx': mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; break;
-        case 'xls': mimeType = 'application/vnd.ms-excel'; break;
-        case 'xlsx': mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; break;
-        case 'zip': mimeType = 'application/zip'; break;
-        case 'rar': mimeType = 'application/x-rar-compressed'; break;
-      }
-
-      const formData = new FormData();
-      formData.append('idUsuario', String(idUsuario));
-      formData.append('nroTramite', String(tramiteNumber));
-      formData.append('descripcion', descripcionInput);
-      formData.append('file', {
-        uri: fileUri,
-        type: mimeType,
-        name: file.name,
-      });
-
-      await http.post('/upload_document/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setIsLoading(false);
-      showModal('Atención', 'El documento fue enviado correctamente.');
-    } catch (error) {
-      throw error;
-    }
-  };
-
   const handleAttach = async () => {
-    if (!tramiteValido()) return;
     try {
       const file = await abrirSelectorArchivo();
       if (!file || !file.uri || !file.name) {
@@ -440,9 +334,9 @@ const HomeScreen = () => {
         onOk={closeModal}
       />
 
-      <Text style={styles.tramiteTitle}>Bandeja de documentos por enviar</Text>
+      <Text style={styles.tramiteTitle}>Documentos escaneados</Text>
 
-      <Text style={styles.label}>Número de trámite</Text>
+      <Text style={styles.label}>Número de trámite (opcional)</Text>
       <TextInput
         style={styles.tramiteInput}
         placeholder="Ej. 12345/2026"
@@ -463,8 +357,8 @@ const HomeScreen = () => {
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
                 {nroTramite.trim()
-                  ? `No hay documentos pendientes por enviar para el trámite ${nroTramite.trim()}`
-                  : 'No hay documentos disponibles por enviar.'}
+                  ? `No hay documentos guardados para el trámite ${nroTramite.trim()}`
+                  : 'Todavía no hay documentos escaneados. Usá el botón "Escanear".'}
               </Text>
             </View>
           ) : (
@@ -472,8 +366,6 @@ const HomeScreen = () => {
               data={myFilter}
               openPDF={openPDF}
               onDelete={handleDelete}
-              onSelect={valSendFile}
-              modalVisible={() => { }}
             />
           )}
         </>
@@ -503,58 +395,68 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#E6F4F1' },
+  container: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    backgroundColor: palette.background,
+  },
   tramiteTitle: {
+    ...typography.h1,
     textAlign: 'center',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#2E2E2E',
+    marginBottom: spacing.md,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#37474F',
-    marginBottom: 4,
+    ...typography.caption,
+    fontFamily: fonts.medium,
+    marginBottom: spacing.sm,
   },
   tramiteInput: {
     borderWidth: 1,
-    borderColor: '#3f008c',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 12,
+    borderColor: palette.border,
+    borderRadius: radius.sm,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: spacing.lg,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    color: palette.textPrimary,
+    ...shadow.soft,
   },
   bottomNav: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 60,
+    minHeight: 68,
     flexDirection: 'row',
     justifyContent: 'space-around',
-    padding: 10,
-    backgroundColor: '#3f008c',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    backgroundColor: palette.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    ...shadow.nav,
   },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20
+    padding: spacing.xl,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center'
-  }
+    ...typography.caption,
+    fontSize: 15,
+    textAlign: 'center',
+  },
 });
 
 export default HomeScreen;
