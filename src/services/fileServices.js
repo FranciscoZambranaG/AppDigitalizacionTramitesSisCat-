@@ -95,6 +95,64 @@ const copyOriginalFile = async (filePath, fileName) => {
   }
 };
 
+// Carpeta (dentro del sandbox) donde se guardan las imagenes JPEG de cada
+// pagina escaneada. Va en subcarpeta para que no aparezcan en la lista de
+// documentos (getAll -> getFiles filtra solo archivos del nivel raiz).
+const PAGES_DIR = `${DIR}paginas/`;
+
+const ensurePagesDir = async () => {
+  const info = await FileSystem.getInfoAsync(PAGES_DIR);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(PAGES_DIR, { intermediates: true });
+  }
+};
+
+// Prefijo de las paginas de un PDF: "documento_123.pdf" -> "documento_123__"
+const pagePrefix = (pdfFileName) => `${pdfFileName.replace(/\.pdf$/i, '')}__p`;
+
+// Copia las imagenes JPEG de las paginas escaneadas al sandbox y devuelve sus rutas.
+// Estas imagenes quedan disponibles para el modelo de IA que se integrara mas adelante.
+const savePages = async (imageUris = [], pdfFileName) => {
+  if (!Array.isArray(imageUris) || imageUris.length === 0) return [];
+  await ensurePagesDir();
+  const saved = [];
+  for (let i = 0; i < imageUris.length; i++) {
+    const dest = `${PAGES_DIR}${pagePrefix(pdfFileName)}${i + 1}.jpg`;
+    try {
+      await FileSystem.copyAsync({ from: imageUris[i], to: dest });
+      saved.push(dest);
+    } catch (err) {
+      console.error('[fileServices] Error al guardar pagina:', err);
+    }
+  }
+  return saved;
+};
+
+// Devuelve las rutas de las imagenes JPEG asociadas a un PDF.
+const getPages = async (pdfFileName) => {
+  try {
+    const info = await FileSystem.getInfoAsync(PAGES_DIR);
+    if (!info.exists) return [];
+    const names = await FileSystem.readDirectoryAsync(PAGES_DIR);
+    const prefix = pagePrefix(pdfFileName);
+    return names
+      .filter((n) => n.startsWith(prefix))
+      .sort()
+      .map((n) => PAGES_DIR + n);
+  } catch (err) {
+    console.error('[fileServices] Error al listar paginas:', err);
+    return [];
+  }
+};
+
+// Elimina las imagenes JPEG asociadas a un PDF.
+const deletePages = async (pdfFileName) => {
+  const pages = await getPages(pdfFileName);
+  await Promise.all(
+    pages.map((p) => FileSystem.deleteAsync(p, { idempotent: true })),
+  );
+};
+
 const eliminateFile = async (filePath) => {
   try {
     const fileExists = await exists(filePath);
@@ -116,4 +174,7 @@ export default {
   createPDF,
   eliminateFile,
   copyOriginalFile,
+  savePages,
+  getPages,
+  deletePages,
 };

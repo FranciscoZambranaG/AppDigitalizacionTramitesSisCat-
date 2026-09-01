@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { palette, typography, spacing, radius, shadow, fonts } from '../utils/theme';
 
 const ModalDescripcion = ({ visible, onClose, onConfirm }) => {
     const [descripcionInput, setDescripcionInput] = useState('');
@@ -48,56 +49,61 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)'
+        backgroundColor: 'rgba(17, 17, 17, 0.45)',
+        padding: spacing.xl,
     },
     modalContent: {
-        width: '80%',
-        backgroundColor: '#E6F4F1',
-        padding: 20,
-        borderRadius: 10,
-        alignItems: 'center'
+        width: '100%',
+        maxWidth: 420,
+        backgroundColor: palette.surface,
+        padding: spacing.xxl,
+        borderRadius: radius.lg,
+        alignItems: 'center',
+        ...shadow.card,
     },
     modalTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        marginBottom: 10,
+        ...typography.h2,
+        marginBottom: spacing.sm,
         textAlign: 'center',
-      
     },
     modalDesc: {
-        fontSize: 12,
-        fontWeight: 'normal',
-        marginBottom: 10,
+        ...typography.caption,
+        marginBottom: spacing.lg,
         textAlign: 'center',
-      
     },
     errorText: {
-        color: 'red',
-        marginBottom: 5,
+        color: palette.error,
+        marginBottom: spacing.sm,
         width: '100%',
         textAlign: 'left',
-        fontSize: 14
+        fontFamily: fonts.regular,
+        fontSize: 13,
     },
     modalInput: {
         width: '100%',
         borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 5,
-        padding: 10,
-        marginBottom: 15,
-        fontSize: 16
+        borderColor: palette.border,
+        borderRadius: radius.sm,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        marginBottom: spacing.lg,
+        fontFamily: fonts.regular,
+        fontSize: 15,
+        color: palette.textPrimary,
+        backgroundColor: palette.surface,
     },
     modalButton: {
-        backgroundColor: '#3f008c',
-        padding: 10,
-        borderRadius: 5,
+        backgroundColor: palette.surfaceDark,
+        paddingVertical: 14,
+        paddingHorizontal: 32,
+        borderRadius: radius.pill,
         width: '100%',
         alignItems: 'center',
-        marginBottom: 10
+        marginBottom: spacing.sm,
     },
     modalButtonText: {
-        color: 'white',
-        fontWeight: 'bold'
+        ...typography.button,
+        color: palette.textOnDark,
     }
 });
 

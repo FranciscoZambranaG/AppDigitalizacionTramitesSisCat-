@@ -1,13 +1,13 @@
 import { StyleSheet } from 'react-native';
-import { colors } from '../../../utils/colors';
+import { palette, typography, spacing, radius, shadow, fonts } from '../../../utils/theme';
 
 export const loginStyles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: colors.background, // celeste suave
+    padding: spacing.xxl,
+    backgroundColor: palette.background,
   },
 
   logo: {
@@ -16,80 +16,62 @@ export const loginStyles = StyleSheet.create({
     borderRadius: 65,
   },
   logoWrapper: {
-    backgroundColor: '#fff',
-    borderRadius: 100,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    marginBottom: 10,
+    backgroundColor: palette.surface,
+    borderRadius: radius.pill,
+    padding: spacing.md,
+    ...shadow.soft,
+    marginBottom: spacing.md,
   },
-    
-  
 
   title: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#37474F', // Gris azulado profesional
-    marginBottom: 8,
+    ...typography.h1,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
     textAlign: 'center',
-    letterSpacing: 0.5,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.primary, // Puedes personalizar desde tu archivo colors.js
-    paddingBottom: 6,
-    lineHeight: 26,
   },
-  
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    marginBottom: 8,
+    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    backgroundColor: colors.inputBackground,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    borderColor: palette.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: palette.surface,
+    ...shadow.soft,
   },
 
   icon: {
-    marginRight: 10,
-    color: colors.lightText,
+    marginRight: spacing.md,
+    color: palette.textSecondary,
   },
 
   input: {
     flex: 1,
-    height: 50,
-    color: colors.darkText,
+    height: 52,
+    color: palette.textPrimary,
+    fontFamily: fonts.regular,
     fontSize: 15,
   },
 
   eyeButton: {
-    padding: 8,
+    padding: spacing.sm,
   },
 
   loginButton: {
     alignSelf: 'stretch',
     maxWidth: 400,
     width: '100%',
-    height: 50,
-    backgroundColor: colors.button,
+    backgroundColor: palette.surfaceDark,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 10,
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 5,
+    borderRadius: radius.pill,
+    marginTop: spacing.xl,
+    paddingHorizontal: 32,
+    paddingVertical: 17,
+    ...shadow.soft,
   },
 
   loginContent: {
@@ -99,35 +81,35 @@ export const loginStyles = StyleSheet.create({
   },
 
   buttonText: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    ...typography.button,
+    color: palette.textOnDark,
   },
 
   errorText: {
-    color: colors.error,
-    fontSize: 13,
-    marginBottom: 8,
+    ...typography.caption,
+    color: palette.error,
+    marginBottom: spacing.sm,
     alignSelf: 'flex-start',
   },
 
   generalError: {
-    color: colors.error,
+    ...typography.caption,
+    color: palette.error,
+    fontFamily: fonts.medium,
     fontSize: 14,
-    marginBottom: 15,
-    fontWeight: '500',
+    marginBottom: spacing.lg,
     textAlign: 'center',
   },
 
   footerContainer: {
-    marginTop: 40,
+    marginTop: spacing.xxl + spacing.lg,
     alignItems: 'center',
   },
 
   footerNote: {
+    ...typography.caption,
     fontSize: 11,
-    color: colors.lightText,
+    lineHeight: 16,
     textAlign: 'center',
   },
 });

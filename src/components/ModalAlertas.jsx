@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { palette, typography, spacing, radius, shadow } from '../utils/theme';
 
 const ModalAlerta = ({ visible, title, description, onOk }) => {
   return (
@@ -26,39 +27,41 @@ export default ModalAlerta;
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(31, 22, 22, 0.4)',
+    backgroundColor: 'rgba(17, 17, 17, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: spacing.xl,
   },
   modalContainer: {
-    width: '80%',
-    backgroundColor: '#E6F4F1',
-    borderRadius: 10,
-    padding: 20,
-    elevation: 5,
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: palette.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xxl,
     alignItems: 'center',
+    ...shadow.card,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 10,
+    ...typography.h2,
+    marginBottom: spacing.sm,
     textAlign: 'center',
-    color: '#3f008c',
   },
   description: {
-    fontSize: 16,
-    marginBottom: 20,
+    ...typography.body,
+    color: palette.textSecondary,
+    marginBottom: spacing.xl,
     textAlign: 'center',
-    color: '#333',
   },
   button: {
-    backgroundColor: '#3f008c',
-    paddingVertical: 10,
-    paddingHorizontal: 25,
-    borderRadius: 5,
+    backgroundColor: palette.surfaceDark,
+    paddingVertical: 14,
+    paddingHorizontal: 36,
+    borderRadius: radius.pill,
+    alignSelf: 'stretch',
+    alignItems: 'center',
   },
   buttonText: {
-    color: 'white',
-    fontSize: 16,
+    ...typography.button,
+    color: palette.textOnDark,
   },
 });

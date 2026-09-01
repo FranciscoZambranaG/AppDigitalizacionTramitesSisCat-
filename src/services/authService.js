@@ -38,6 +38,11 @@ const parseKcError = (error) => {
       'El cliente de autenticacion no permite este tipo de acceso. Avise al area de sistemas.',
     );
   }
+  if (code === 'invalid_client') {
+    return new Error(
+      'Configuracion de autenticacion incompleta (client secret). Avise al area de sistemas.',
+    );
+  }
   if (error?.code === 'ECONNABORTED' || error?.message === 'Network Error') {
     return new Error('No se pudo contactar al servidor de autenticacion.');
   }
