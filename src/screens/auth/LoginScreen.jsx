@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, SafeAreaView, Image, Alert } from 'react-native';
 import { Ionicons as Icon } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import * as Animatable from 'react-native-animatable';
 import { biometriaDisponible, autenticarBiometrico } from '../../utils/biometria';
 import { guardarCredenciales, obtenerCredenciales } from '../../utils/credencialesSeguras';
@@ -9,32 +8,28 @@ import { colors } from '../../utils/colors';
 import { loginStyles as styles } from './styles/LoginStyles';
 import { useAuth } from '../../hooks/AuthProvider';
 import { useWifiLost } from '../../hooks/WifiLostProvider';
-import baseUrl from '../../api/baseUrl';
 import banner from '../../assets/banner.png';
 
 const Login = () => {
-  const navigation = useNavigation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [errorUser, setErrorUser] = useState('');
   const [errorPass, setErrorPass] = useState('');
   const [generalError, setGeneralError] = useState('');
 
-  const { saveAuthIds } = useAuth();
+  const { login } = useAuth();
   const { checkConnection } = useWifiLost();
 
   useEffect(() => {
     const checkBiometricAvailability = async () => {
       try {
-        console.log('[BIOMETRIC] Verificando disponibilidad del sensor...');
-        const { available, error } = await biometriaDisponible();
-        console.log('[BIOMETRIC] biometriaDisponible:', { available, error });
+        const { available } = await biometriaDisponible();
         setBiometricAvailable(Boolean(available));
       } catch (err) {
-        console.error('[BIOMETRIC] Error verificando disponibilidad:', err);
         setBiometricAvailable(false);
       }
     };
@@ -44,71 +39,56 @@ const Login = () => {
   }, []);
 
   const handleBiometricAuth = async () => {
-    console.log('[BIOMETRIC] Iniciando autenticación biométrica...');
     const isConnected = await checkConnection();
-    console.log('[BIOMETRIC] Conexión WiFi:', isConnected);
     if (!isConnected) return;
 
     try {
       const { available, error } = await biometriaDisponible();
-      console.log('[BIOMETRIC] biometriaDisponible (onPress):', { available, error });
       if (!available) {
         const mensaje = error === 'BIOMETRIC_ERROR_NONE_ENROLLED'
-          ? "No hay huella ni rostro configurados. Puede usar el PIN/Patrón de su dispositivo para ingresar."
-          : (error || "Biometría no disponible. Puede usar el PIN/Patrón de su dispositivo para ingresar.");
+          ? 'No hay huella ni rostro configurados. Puede usar el PIN/Patron de su dispositivo para ingresar.'
+          : (error || 'Biometria no disponible. Puede usar el PIN/Patron de su dispositivo para ingresar.');
         Alert.alert(
-          "Biometría no disponible",
+          'Biometria no disponible',
           mensaje,
           [
-            { text: "Cancelar", style: "cancel" },
-            {
-              text: "Usar PIN/Patrón",
-              onPress: () => launchPinAuth(),
-            },
-          ]
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Usar PIN/Patron', onPress: () => launchPinAuth() },
+          ],
         );
         return;
       }
 
-      console.log('[BIOMETRIC] Llamando a autenticarBiometrico...');
-      const { success } = await autenticarBiometrico('Identifíquese para ingresar a DigiD');
-      console.log('[BIOMETRIC] Resultado autenticarBiometrico:', success);
-
+      const { success } = await autenticarBiometrico('Identifiquese para ingresar');
       if (success) {
         retrieveCredentialsAndLogin();
       }
     } catch (error) {
-      console.error('[BIOMETRIC] Fallo biometría o cancelado:', error);
       askForPin();
     }
   };
 
   const askForPin = () => {
     Alert.alert(
-      "Biometría no detectada",
-      "La huella o reconocimiento facial no funcionó. ¿Desea ingresar usando el PIN/Patrón de su celular?",
+      'Biometria no detectada',
+      'La huella o reconocimiento facial no funciono. Desea ingresar usando el PIN/Patron de su celular?',
       [
-        { text: "No, cancelar", style: "cancel" },
-        {
-          text: "Sí, usar",
-          onPress: () => launchPinAuth()
-        }
-      ]
+        { text: 'No, cancelar', style: 'cancel' },
+        { text: 'Si, usar', onPress: () => launchPinAuth() },
+      ],
     );
   };
 
   const launchPinAuth = async () => {
     try {
-      // El PIN/Patron del dispositivo ya se ofrece como fallback dentro de
-      // autenticarBiometrico(); aqui solo recuperamos las credenciales guardadas.
       const credentials = await obtenerCredenciales();
       if (credentials) {
         performLogin(credentials.username, credentials.password);
       } else {
-        Alert.alert("Aviso", "Aun no ha guardado sus credenciales. Inicie sesión manualmente una vez.");
+        Alert.alert('Aviso', 'Aun no ha guardado sus credenciales. Inicie sesion manualmente una vez.');
       }
     } catch (err) {
-      Alert.alert("Aviso", "No se pudo validar.");
+      Alert.alert('Aviso', 'No se pudo validar.');
     }
   };
 
@@ -118,68 +98,36 @@ const Login = () => {
       if (credentials) {
         performLogin(credentials.username, credentials.password);
       } else {
-        Alert.alert("Aviso", "Aun no ha guardado sus credenciales. Inicie sesión manualmente una vez.");
+        Alert.alert('Aviso', 'Aun no ha guardado sus credenciales. Inicie sesion manualmente una vez.');
       }
     } catch (error) {
-      Alert.alert("Error", "No se pudieron leer las credenciales.");
+      Alert.alert('Error', 'No se pudieron leer las credenciales.');
     }
   };
 
   const performLogin = async (user, pass) => {
-    const url = `${baseUrl}/login`;
+    const nombre = (user || '').trim();
+    setLoading(true);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nombre: user,
-          clave: pass,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (response.status === 401) {
-        setGeneralError('Credenciales incorrectas');
-        setTimeout(() => setGeneralError(''), 3000);
-        return;
-      }
-
-      if (!response.ok) {
-        setGeneralError(`Error del servidor (${response.status})`);
-        setTimeout(() => setGeneralError(''), 3000);
-        return;
-      }
-
-      const token = await response.json();
-      if (!token?.user) {
-        setGeneralError('Token inválido.');
-        return;
-      }
-
+      await login(nombre, pass);
       try {
-        await guardarCredenciales(user, pass);
+        await guardarCredenciales(nombre, pass);
       } catch (keychainError) {
         console.log('[LOGIN] error guardando credenciales', keychainError);
       }
-
       setGeneralError('');
-      const { nombre, estado, ...data } = token.user;
-      await saveAuthIds(data);
-      navigation.replace('Inbox');
+      // La navegacion cambia sola al quedar la sesion autenticada.
     } catch (error) {
-      console.log('[LOGIN] error', { url, message: error?.message, name: error?.name });
-      setGeneralError('Error de conexión');
-      setTimeout(() => setGeneralError(''), 3000);
+      setGeneralError(error?.message || 'No se pudo iniciar sesion');
+      setTimeout(() => setGeneralError(''), 4000);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogin = async () => {
+    setErrorUser('');
+    setErrorPass('');
     if (!username.trim()) { setErrorUser('Requerido'); return; }
     if (!password.trim()) { setErrorPass('Requerido'); return; }
     performLogin(username, password);
@@ -211,6 +159,7 @@ const Login = () => {
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
+              editable={!loading}
             />
           </Animatable.View>
           {errorUser ? (
@@ -226,6 +175,7 @@ const Login = () => {
               secureTextEntry={!showPassword}
               value={password}
               onChangeText={setPassword}
+              editable={!loading}
             />
             <TouchableOpacity
               style={styles.eyeButton}
@@ -238,28 +188,27 @@ const Login = () => {
           ) : null}
 
           <Animatable.View animation="fadeInUp" delay={400}>
-            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+            <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
               <View style={styles.loginContent}>
-                <Text style={styles.buttonText}>Iniciar sesión</Text>
+                <Text style={styles.buttonText}>{loading ? 'Ingresando...' : 'Iniciar sesión'}</Text>
                 <Icon name="log-in-outline" size={20} color="#fff" style={{ marginLeft: 8 }} />
               </View>
             </TouchableOpacity>
           </Animatable.View>
 
-
-          {/* BOTÓN BIOMÉTRICO */}
+          {/* BOTON BIOMETRICO */}
           <Animatable.View animation="zoomIn" delay={600} style={{ alignItems: 'center', marginTop: 30 }}>
             <TouchableOpacity
               onPress={handleBiometricAuth}
               style={{ alignItems: 'center', padding: 10, opacity: biometricAvailable ? 1 : 0.5 }}
-              disabled={!biometricAvailable}
+              disabled={!biometricAvailable || loading}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Icon name="scan-outline" size={40} color={colors.primary} style={{ marginRight: -10 }} />
                 <Icon name="finger-print-outline" size={55} color={colors.primary} />
               </View>
               <Text style={{ color: colors.lightText, fontSize: 13, marginTop: 8 }}>
-                Acceso Biométrico
+                Acceso Biometrico
               </Text>
             </TouchableOpacity>
           </Animatable.View>
