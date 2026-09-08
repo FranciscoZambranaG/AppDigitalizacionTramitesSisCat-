@@ -44,6 +44,28 @@ Para apuntar a otro servidor sin tocar `app.json`, crea un `.env` en la raíz:
 EXPO_PUBLIC_URL_BASE=http://192.168.x.x:8000
 ```
 
+## Módulo "Estudiar con la IA" (backend `server/`)
+
+Backend Node aparte en [`server/`](./server) (ver [`server/README.md`](./server/README.md)).
+La app se conecta vía `EXPO_PUBLIC_AI_BACKEND_URL`. `AIStudyScreen` (se abre
+desde un documento ya escaneado) clasifica el tipo de documento y muestra
+preguntas preescritas, con Ollama `qwen3-vl:2b` (`AI_PROVIDER` en `server/.env`).
+Sin el backend corriendo, esa pantalla no clasifica ni responde. Solo móvil.
+
+## Módulo "Resoluciones" (carpeta `resoluciones/`)
+
+Para digitalizar la tabla "RELACIÓN DE SUPERFICIE" de las resoluciones y volcarla
+a la **Hoja2** de `plantilla-ph.xlsm`. Pensado para entregarse como módulo del
+ERP `proyecto-erp` (FastAPI + PostgreSQL + React). Ver
+[`resoluciones/README.md`](./resoluciones/README.md).
+
+- **App móvil** (`ResolucionesScreen`, botón en la pantalla principal): escanea
+  las páginas + N° de resolución + nombre y **las sube** (`EXPO_PUBLIC_ERP_BACKEND_URL`).
+  Lista "mis resoluciones" con su estado. No hace OCR ni Excel.
+- **`resoluciones/backend/`** (FastAPI): guarda/lista/entrega las resoluciones por usuario.
+- **`resoluciones/frontend/`** (Vite + React, diseño del ERP): OCR en el navegador
+  (`ocr.catastrocbba.com`), editor de la tabla y generación del `.xlsm`.
+
 ## Estructura
 
 ```
@@ -52,10 +74,10 @@ src/
 ├── api/                   baseUrl
 ├── config/                env (expo-constants)
 ├── navigation/            stack de React Navigation
-├── screens/               Splash · Login · Trámites · Bandeja · PDFViewer
+├── screens/               Login · Home · PDFViewer · AIStudy · Resoluciones
 ├── components/            modales, listas, botones
 ├── hooks/                 AuthProvider, WifiLostProvider
-├── services/              fileServices, scanService, tramiteService, ...
+├── services/              fileServices, scanService, authService, aiDocService
 └── utils/                 pdf, resize, biometría, credenciales seguras
 ```
 

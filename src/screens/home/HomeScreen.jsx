@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, Image, TextInput } from 'react-native';
+import { View, StyleSheet, Text, Image, TextInput, TouchableOpacity } from 'react-native';
+import { Feather as Icon } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { crearPdfDesdeImagenes } from '../../utils/crearPdfDesdeImagenes';
@@ -339,6 +340,15 @@ const HomeScreen = () => {
       <Text style={styles.tramiteTitle}>Documentos escaneados</Text>
       <View style={[themeComponents.titleAccent, { alignSelf: 'center' }]} />
 
+      <TouchableOpacity
+        style={styles.resolucionesButton}
+        onPress={() => navigation.navigate('ResolucionesScreen')}
+        activeOpacity={0.85}>
+        <Icon name="file-text" size={18} color={palette.primaryDeep} />
+        <Text style={styles.resolucionesButtonText}>Resoluciones</Text>
+        <Icon name="chevron-right" size={18} color={palette.textSecondary} />
+      </TouchableOpacity>
+
       <Text style={styles.label}>Número de trámite (opcional)</Text>
       <TextInput
         style={styles.tramiteInput}
@@ -413,6 +423,25 @@ const styles = StyleSheet.create({
     ...typography.caption,
     fontFamily: fonts.medium,
     marginBottom: spacing.sm,
+  },
+  resolucionesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: radius.md,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+    ...shadow.soft,
+  },
+  resolucionesButtonText: {
+    ...typography.button,
+    flex: 1,
+    color: palette.textPrimary,
   },
   tramiteInput: {
     borderWidth: 1,

@@ -2,32 +2,26 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Image,
   ActivityIndicator,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Feather as Icon } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy';
 import { palette, typography, spacing, radius, shadow } from '../../utils/theme';
-import { OLLAMA_URL, OLLAMA_MODEL } from '../../config/env';
 import fileServices from '../../services/fileServices';
+import aiDocService from '../../services/aiDocService';
 
-// El modelo local (Ollama) tiene que generar la respuesta completa antes de
-// devolver nada (stream: false), asi que se le da un margen generoso antes
-// de considerar que la conexion esta caida en vez de solo lenta.
-const TIMEOUT_MS = 120000;
-
-// Pantalla "Estudiar con la IA": manda las paginas escaneadas del documento
-// (guardadas por fileServices.savePages) junto con la pregunta del usuario
-// al modelo de vision de Ollama que corre localmente (ver src/config/env.js
-// -> OLLAMA_URL / OLLAMA_MODEL) y muestra la respuesta.
+// Pantalla "Estudiar con la IA": clasifica el documento escaneado (guardado
+// por fileServices.savePages) contra el catalogo del backend
+// (server/src/catalog.js) y muestra las preguntas preescritas de ese tipo. No
+// es un chat libre. Las resoluciones que traen la tabla "RELACION DE
+// SUPERFICIE" tienen su propio apartado ("Resoluciones" -> ResolucionesScreen),
+// que NO pasa por el clasificador: aca solo se reconoce que el documento es
+// una resolucion.
 const AIStudyScreen = ({ route }) => {
   const navigation = useNavigation();
   const { fileName } = route?.params || {};
@@ -35,10 +29,12 @@ const AIStudyScreen = ({ route }) => {
   const [pageImages, setPageImages] = useState([]);
   const [cargandoPaginas, setCargandoPaginas] = useState(true);
 
-  const [mensaje, setMensaje] = useState('');
-  const [cargando, setCargando] = useState(false);
-  const [respuesta, setRespuesta] = useState('');
-  const [error, setError] = useState(null);
+  const [catalogo, setCatalogo] = useState([]);
+  const [clasificando, setClasificando] = useState(false);
+  const [clasificacion, setClasificacion] = useState(null); // { tipo, confianza, razon }
+  const [errorClasificacion, setErrorClasificacion] = useState(null);
+
+  const [respuestas, setRespuestas] = useState([]); // [{ pregunta, respuesta, cargando, error }]
 
   useEffect(() => {
     let cancelado = false;
@@ -61,59 +57,63 @@ const AIStudyScreen = ({ route }) => {
     };
   }, [fileName]);
 
-  const enviarMensaje = async () => {
-    if (!mensaje.trim() || cargando) return;
+  useEffect(() => {
+    aiDocService
+      .getCatalog()
+      .then((tipos) => setCatalogo(tipos))
+      .catch((e) => console.log('[AIStudyScreen] error obteniendo catalogo', e));
+  }, []);
 
-    setCargando(true);
-    setError(null);
-    setRespuesta('');
+  useEffect(() => {
+    if (pageImages.length === 0) return;
+    let cancelado = false;
+    (async () => {
+      setClasificando(true);
+      setErrorClasificacion(null);
+      try {
+        // Solo la primera pagina: el tipo de documento se distingue con eso
+        // (titulo, sellos, formato) y mandar todas las paginas de una
+        // resolucion larga sobrecarga el modelo local (probado: 3 imagenes
+        // juntas tumban el proceso de Ollama por memoria).
+        const resultado = await aiDocService.classifyDocument(pageImages.slice(0, 1));
+        if (!cancelado) setClasificacion(resultado);
+      } catch (e) {
+        console.log('[AIStudyScreen] error clasificando documento', e);
+        if (!cancelado) {
+          // aiDocService ya distingue timeout vs. red vs. error del modelo.
+          setErrorClasificacion(e.message || 'No se pudo clasificar el documento.');
+        }
+      } finally {
+        if (!cancelado) setClasificando(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageImages]);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const tipoInfo = clasificacion ? catalogo.find((t) => t.code === clasificacion.tipo) : null;
 
+  const preguntar = async (pregunta) => {
+    setRespuestas((prev) => [...prev, { pregunta, respuesta: '', cargando: true, error: null }]);
     try {
-      // El modelo de vision espera cada imagen como string base64 (sin el
-      // prefijo "data:image/...;base64,").
-      const images = await Promise.all(
-        pageImages.map((uri) =>
-          FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }),
+      // Mismo motivo que en la clasificacion: las preguntas preescritas son
+      // sobre datos de la primera pagina (numero de resolucion, propietario,
+      // etc.) y mandar todas las paginas sobrecarga el modelo local.
+      const respuesta = await aiDocService.askQuestion(pageImages.slice(0, 1), clasificacion.tipo, pregunta);
+      setRespuestas((prev) =>
+        prev.map((r) => (r.pregunta === pregunta && r.cargando ? { ...r, respuesta, cargando: false } : r)),
+      );
+    } catch (e) {
+      console.log('[AIStudyScreen] error respondiendo pregunta', e);
+      setRespuestas((prev) =>
+        prev.map((r) =>
+          r.pregunta === pregunta && r.cargando
+            ? { ...r, cargando: false, error: e.message || 'No se pudo obtener una respuesta.' }
+            : r,
         ),
       );
-
-      const res = await fetch(`${OLLAMA_URL}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          prompt: mensaje,
-          stream: false,
-          ...(images.length ? { images } : {}),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`El servidor respondio con estado ${res.status}`);
-      }
-
-      const data = await res.json();
-      setRespuesta(data.response ?? '');
-    } catch (e) {
-      console.log('[AIStudyScreen] error consultando Ollama', e);
-      if (e.name === 'AbortError') {
-        setError(
-          'El modelo esta tardando demasiado en responder (mas de 2 minutos) y se cancelo la ' +
-            'consulta. Puede que el servidor este sobrecargado o inaccesible.',
-        );
-      } else {
-        setError(
-          'No se pudo conectar con el modelo de IA. Verifica que el servidor de Ollama este ' +
-            'corriendo y que el celular este en la misma red.',
-        );
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      setCargando(false);
     }
   };
 
@@ -129,82 +129,109 @@ const AIStudyScreen = ({ route }) => {
         <View style={styles.headerSpacer} />
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled">
-          {fileName ? (
-            <Text style={styles.contextLabel} numberOfLines={1}>
-              Documento: {fileName}
-            </Text>
-          ) : null}
+      <ScrollView style={styles.flex} contentContainerStyle={styles.scrollContent}>
+        {fileName ? (
+          <Text style={styles.contextLabel} numberOfLines={1}>
+            Documento: {fileName}
+          </Text>
+        ) : null}
 
-          {cargandoPaginas ? (
-            <View style={styles.pagesRow}>
-              <ActivityIndicator size="small" color={palette.primaryDeep} />
-              <Text style={styles.pagesHint}>Cargando paginas escaneadas...</Text>
-            </View>
-          ) : pageImages.length > 0 ? (
-            <View style={styles.pagesSection}>
-              <Text style={styles.pagesHint}>
-                La IA va a analizar estas {pageImages.length}{' '}
-                {pageImages.length === 1 ? 'pagina' : 'paginas'}:
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.pagesRowContent}>
-                {pageImages.map((uri) => (
-                  <Image key={uri} source={{ uri }} style={styles.pageThumb} />
-                ))}
-              </ScrollView>
-            </View>
-          ) : (
+        {cargandoPaginas ? (
+          <View style={styles.pagesRow}>
+            <ActivityIndicator size="small" color={palette.primaryDeep} />
+            <Text style={styles.pagesHint}>Cargando paginas escaneadas...</Text>
+          </View>
+        ) : pageImages.length > 0 ? (
+          <View style={styles.pagesSection}>
             <Text style={styles.pagesHint}>
-              No se encontraron imagenes escaneadas para este documento; la IA solo va a responder
-              en base a tu pregunta.
+              La IA va a analizar estas {pageImages.length}{' '}
+              {pageImages.length === 1 ? 'pagina' : 'paginas'}:
             </Text>
-          )}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.pagesRowContent}>
+              {pageImages.map((uri) => (
+                <Image key={uri} source={{ uri }} style={styles.pageThumb} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : (
+          <Text style={styles.pagesHint}>
+            No se encontraron imagenes escaneadas para este documento.
+          </Text>
+        )}
 
-          <View style={styles.responseBox}>
-            {cargando ? (
-              <View style={styles.centered}>
-                <ActivityIndicator size="large" color={palette.primaryDeep} />
-                <Text style={styles.loadingText}>Consultando al modelo...</Text>
+        {pageImages.length > 0 && (
+          <View style={styles.card}>
+            {clasificando ? (
+              <View style={styles.centeredRow}>
+                <ActivityIndicator size="small" color={palette.primaryDeep} />
+                <Text style={styles.loadingText}>
+                  Analizando documento... (puede tardar hasta un minuto)
+                </Text>
               </View>
-            ) : error ? (
-              <Text style={styles.errorText}>{error}</Text>
-            ) : respuesta ? (
-              <Text style={styles.responseText}>{respuesta}</Text>
+            ) : errorClasificacion ? (
+              <Text style={styles.errorText}>{errorClasificacion}</Text>
+            ) : clasificacion ? (
+              <>
+                <View style={styles.typeBadge}>
+                  <Text style={styles.typeBadgeText}>
+                    {tipoInfo ? tipoInfo.label : clasificacion.tipo}
+                  </Text>
+                </View>
+                {clasificacion.razon ? <Text style={styles.reasonText}>{clasificacion.razon}</Text> : null}
+
+                {tipoInfo ? (
+                  <View style={styles.questionsSection}>
+                    <Text style={styles.sectionTitle}>Preguntas sobre este documento</Text>
+                    <View style={styles.questionsWrap}>
+                      {tipoInfo.preguntas.map((pregunta) => (
+                        <TouchableOpacity
+                          key={pregunta}
+                          style={styles.questionChip}
+                          onPress={() => preguntar(pregunta)}>
+                          <Text style={styles.questionChipText}>{pregunta}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.pagesHint}>
+                    No se reconocio el tipo de documento, asi que no hay preguntas preescritas
+                    para mostrar.
+                  </Text>
+                )}
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {respuestas.map((r, i) => (
+          <View key={`${r.pregunta}-${i}`} style={styles.card}>
+            <Text style={styles.questionLabel}>{r.pregunta}</Text>
+            {r.cargando ? (
+              <View style={styles.centeredRow}>
+                <ActivityIndicator size="small" color={palette.primaryDeep} />
+                <Text style={styles.loadingText}>Consultando...</Text>
+              </View>
+            ) : r.error ? (
+              <Text style={styles.errorText}>{r.error}</Text>
             ) : (
-              <Text style={styles.placeholderText}>
-                Escribi una pregunta y presiona enviar para consultar al modelo de IA.
-              </Text>
+              <Text style={styles.responseText}>{r.respuesta}</Text>
             )}
           </View>
-        </ScrollView>
+        ))}
 
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="Escribi tu mensaje..."
-            placeholderTextColor={palette.textSecondary}
-            value={mensaje}
-            onChangeText={setMensaje}
-            multiline
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, (!mensaje.trim() || cargando) && styles.sendButtonDisabled]}
-            onPress={enviarMensaje}
-            disabled={!mensaje.trim() || cargando}>
-            <Icon name="send" size={20} color={palette.textOnDark} />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+        {tipoInfo?.puedeTraerTablaSuperficie && (
+          <View style={styles.card}>
+            <Text style={styles.pagesHint}>
+              Este documento es una resolución. Para leer su tabla "RELACIÓN DE SUPERFICIE" y armar
+              la Hoja2 del Excel, usá el apartado "Resoluciones" en la pantalla principal.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -235,11 +262,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerSpacer: { width: 36 },
-  scrollContent: { padding: spacing.xl, flexGrow: 1 },
+  scrollContent: { padding: spacing.xl, paddingBottom: spacing.xxl },
   contextLabel: { ...typography.caption, marginBottom: spacing.md },
   pagesSection: { marginBottom: spacing.lg },
   pagesHint: { ...typography.caption, marginBottom: spacing.sm },
-  pagesRow: { flexDirection: 'row', alignItems: 'center' },
+  pagesRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
   pagesRowContent: { flexDirection: 'row', alignItems: 'center' },
   pageThumb: {
     width: 64,
@@ -248,48 +275,40 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     backgroundColor: palette.surface,
   },
-  responseBox: {
-    flex: 1,
-    minHeight: 200,
+  card: {
     backgroundColor: palette.surface,
     borderRadius: radius.card,
     padding: spacing.xl,
+    marginBottom: spacing.lg,
     ...shadow.soft,
   },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { ...typography.caption, marginTop: spacing.md },
-  placeholderText: { ...typography.body, color: palette.textSecondary },
-  responseText: { ...typography.body },
+  centeredRow: { flexDirection: 'row', alignItems: 'center' },
+  loadingText: { ...typography.caption, marginLeft: spacing.sm },
   errorText: { ...typography.body, color: palette.danger },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    padding: spacing.lg,
-    backgroundColor: palette.surface,
-    ...shadow.nav,
+  typeBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: palette.primaryLight,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
   },
-  input: {
-    flex: 1,
-    maxHeight: 120,
+  typeBadgeText: { ...typography.bodyMedium, color: palette.primaryDeep },
+  reasonText: { ...typography.caption, marginBottom: spacing.md },
+  sectionTitle: { ...typography.h2, marginBottom: spacing.sm },
+  questionsSection: { marginTop: spacing.sm },
+  questionsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  questionChip: {
     backgroundColor: palette.background,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: palette.border,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    ...typography.body,
-    marginRight: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    backgroundColor: palette.primaryDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.soft,
-  },
-  sendButtonDisabled: { opacity: 0.45 },
+  questionChipText: { ...typography.caption, color: palette.textPrimary },
+  questionLabel: { ...typography.bodyMedium, marginBottom: spacing.sm },
+  responseText: { ...typography.body },
 });
 
 export default AIStudyScreen;

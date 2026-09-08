@@ -24,6 +24,8 @@ export const palette = {
 
   error: '#AE1857',          // se conserva para usos existentes
   danger: '#E74C3C',         // acciones destructivas (Eliminar)
+  warning: '#E8A13A',        // estados "pendiente" / avisos
+  success: '#2E9E5B',        // estados "listo" / confirmaciones
 };
 
 // --- 2. Tipografía ----------------------------------------------------------

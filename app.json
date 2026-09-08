@@ -44,7 +44,22 @@
       "KEYCLOAK_REALM": "alcaldia-idec",
       "KEYCLOAK_CLIENT_ID": "app-idec",
       "KEYCLOAK_CLIENT_SECRET": "",
-      "KEYCLOAK_SCOPE": "openid profile"
-    }
+      "KEYCLOAK_SCOPE": "openid profile",
+      "AI_BACKEND_URL": "",
+      "ERP_BACKEND_URL": "",
+      "eas": {
+        "projectId": "7396605e-64e3-4178-b7c6-a684fc7e76cd"
+      }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-image",
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-web-browser"
+    ],
+    "owner": "fzambranas-team"
   }
 }

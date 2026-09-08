@@ -6,6 +6,7 @@ import Home from '../screens/home/HomeScreen';
 import Login from '../screens/auth/LoginScreen';
 import PDFViewer from '../screens/home/PDFViewer';
 import AIStudyScreen from '../screens/home/AIStudyScreen';
+import ResolucionesScreen from '../screens/home/ResolucionesScreen';
 import AuthProvider, { useAuth } from '../hooks/AuthProvider';
 import WifiLostProvider from '../hooks/WifiLostProvider';
 
@@ -30,6 +31,7 @@ const RootStack = () => {
           <Screen name="Home" component={Home} />
           <Screen name="PDFViewer" component={PDFViewer} />
           <Screen name="AIStudyScreen" component={AIStudyScreen} />
+          <Screen name="ResolucionesScreen" component={ResolucionesScreen} />
         </>
       ) : (
         <Screen name="Login" component={Login} />
