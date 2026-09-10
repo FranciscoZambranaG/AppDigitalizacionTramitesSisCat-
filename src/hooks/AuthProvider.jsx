@@ -9,6 +9,7 @@ import React, {
 import * as SecureStore from 'expo-secure-store';
 import ModalAlerta from '../components/ModalAlertas';
 import { setAuthHandlers } from '../api/http';
+import fileServices from '../services/fileServices';
 import {
   passwordLogin,
   refreshTokens,
@@ -59,10 +60,14 @@ const AuthProvider = ({ children }) => {
     const refresh = data?.refresh_token || refreshRef.current || null;
     accessRef.current = access;
     refreshRef.current = refresh;
-    setUser(access ? decodeJwt(access) : null);
+    const decoded = access ? decodeJwt(access) : null;
+    setUser(decoded);
     setIsAuthenticated(Boolean(access));
     persist(ACCESS_KEY, access);
     persist(REFRESH_KEY, refresh);
+    // `sub` (id estable de Keycloak) separa los documentos escaneados por
+    // usuario en el disco del telefono -- ver comentario en fileServices.js.
+    fileServices.setCurrentUser(decoded?.sub || null);
     return access;
   }, []);
 
@@ -73,6 +78,7 @@ const AuthProvider = ({ children }) => {
     setIsAuthenticated(false);
     persist(ACCESS_KEY, null);
     persist(REFRESH_KEY, null);
+    fileServices.setCurrentUser(null);
   }, []);
 
   const login = useCallback(

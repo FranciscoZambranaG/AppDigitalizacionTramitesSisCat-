@@ -36,7 +36,12 @@ const HomeScreen = () => {
   // documento. NO bloquea el escaneo.
   const [nroTramite, setNroTramite] = useState('');
 
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  // Mismo motivo que en fileServices.js (separar por usuario en un telefono
+  // compartido): estas 3 claves de AsyncStorage guardaban descripcion/tramite
+  // /paginas de TODOS los usuarios juntas en el mismo mapa global.
+  const userKey = user?.sub || '_sin_sesion';
+  const storageKey = (base) => `${base}_${userKey}`;
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
@@ -85,10 +90,10 @@ const HomeScreen = () => {
       const fileArr = await fileServices.getAll();
       const allFiles = fileArr.filter(file => file.isFile());
 
-      const stored = await AsyncStorage.getItem('descripciones');
+      const stored = await AsyncStorage.getItem(storageKey('descripciones'));
       const descripciones = stored ? JSON.parse(stored) : {};
 
-      const storedTramites = await AsyncStorage.getItem('tramites');
+      const storedTramites = await AsyncStorage.getItem(storageKey('tramites'));
       const tramites = storedTramites ? JSON.parse(storedTramites) : {};
 
       const filesWithMetadata = allFiles.map(file => {
@@ -109,35 +114,36 @@ const HomeScreen = () => {
   };
 
   const guardarMetadatos = async ({ fileName, descripcion, paginas }) => {
-    const rawD = await AsyncStorage.getItem('descripciones');
+    const rawD = await AsyncStorage.getItem(storageKey('descripciones'));
     const mapD = rawD ? JSON.parse(rawD) : {};
     mapD[fileName] = descripcion;
-    await AsyncStorage.setItem('descripciones', JSON.stringify(mapD));
+    await AsyncStorage.setItem(storageKey('descripciones'), JSON.stringify(mapD));
 
     const tramite = nroTramite.trim();
     if (tramite) {
-      const rawT = await AsyncStorage.getItem('tramites');
+      const rawT = await AsyncStorage.getItem(storageKey('tramites'));
       const mapT = rawT ? JSON.parse(rawT) : {};
       mapT[fileName] = tramite;
-      await AsyncStorage.setItem('tramites', JSON.stringify(mapT));
+      await AsyncStorage.setItem(storageKey('tramites'), JSON.stringify(mapT));
     }
 
     if (paginas && paginas.length) {
-      const rawP = await AsyncStorage.getItem('paginas');
+      const rawP = await AsyncStorage.getItem(storageKey('paginas'));
       const mapP = rawP ? JSON.parse(rawP) : {};
       mapP[fileName] = paginas;
-      await AsyncStorage.setItem('paginas', JSON.stringify(mapP));
+      await AsyncStorage.setItem(storageKey('paginas'), JSON.stringify(mapP));
     }
   };
 
   const borrarMetadatos = async (fileName) => {
     for (const key of ['descripciones', 'tramites', 'paginas']) {
-      const raw = await AsyncStorage.getItem(key);
+      const fullKey = storageKey(key);
+      const raw = await AsyncStorage.getItem(fullKey);
       if (!raw) continue;
       const map = JSON.parse(raw);
       if (map[fileName] !== undefined) {
         delete map[fileName];
-        await AsyncStorage.setItem(key, JSON.stringify(map));
+        await AsyncStorage.setItem(fullKey, JSON.stringify(map));
       }
     }
   };
