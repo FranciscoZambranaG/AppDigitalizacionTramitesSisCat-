@@ -20,18 +20,11 @@ const yCenter = (p) => (p[0][1] + p[2][1]) / 2
 const xStartOf = (p) => Math.min(p[0][0], p[3][0])
 const xEndOf = (p) => Math.max(p[1][0], p[2][0])
 
-function buildGrid(blocks, { rowGapY = 3.5, mergeGapX = 18, columnGapX = 45 } = {}) {
-  const items = blocks
-    .map((b) => ({
-      text: (b.text || '').trim(),
-      confidence: b.confidence ?? 1,
-      y: yCenter(b.points),
-      xStart: xStartOf(b.points),
-      xEnd: xEndOf(b.points),
-    }))
-    .filter((b) => b.text)
-    .sort((a, b) => a.y - b.y)
-
+// Agrupa items (ya ordenados por y) en filas por gap fijo: arranca fila nueva
+// cuando el salto en Y supera rowGapY. Es el heuristico de siempre, factorizado
+// para reusarlo tambien como red de seguridad dentro de una banda de linea
+// anormalmente alta (ver mas abajo).
+function clusterByGap(items, rowGapY) {
   const rows = []
   items.forEach((it) => {
     const last = rows[rows.length - 1]
@@ -43,6 +36,65 @@ function buildGrid(blocks, { rowGapY = 3.5, mergeGapX = 18, columnGapX = 45 } = 
       last.y = (last.y * (last.items.length - 1) + it.y) / last.items.length
     }
   })
+  return rows
+}
+
+// rowGapY=3.5 (el valor original) parte una sola fila visual en varias
+// "micro-filas": en fotos reales los numeros de una misma fila no caen
+// exactamente a la misma altura (inclinacion/ruido del OCR, mas notorio
+// cuanto mas ancha es la tabla), y 3.5px es demasiado ajustado para esa
+// diferencia. Se probo contra 7 tablas reales de GAMC (con encabezados y
+// anchos bien distintos): 8px mejora las 7 sin romper ninguna.
+// Si viene `lineYs` (limites de fila reales, detectados sobre la imagen ya
+// enderezada por tableLineDetector.js) se arma cada fila por la banda de
+// linea a la que cae cada bloque, en vez de por el gap fijo `rowGapY` -- mas
+// preciso porque son las lineas de la tabla en si, no una heuristica ajustada
+// a ojo. Si no hay suficientes lineas (<3, o sea menos de 2 bandas utiles) se
+// sigue usando el gap de siempre, igual que antes de que existiera esto.
+function buildGrid(blocks, { rowGapY = 8, mergeGapX = 18, columnGapX = 45, lineYs = [] } = {}) {
+  const items = blocks
+    .map((b) => ({
+      text: (b.text || '').trim(),
+      confidence: b.confidence ?? 1,
+      y: yCenter(b.points),
+      xStart: xStartOf(b.points),
+      xEnd: xEndOf(b.points),
+    }))
+    .filter((b) => b.text)
+    .sort((a, b) => a.y - b.y)
+
+  let rows = []
+  if (lineYs.length >= 3) {
+    const alturas = []
+    for (let i = 0; i < lineYs.length - 1; i++) alturas.push(lineYs[i + 1] - lineYs[i])
+    const ordenadas = [...alturas].sort((a, b) => a - b)
+    const alturaTipica = ordenadas[Math.floor(ordenadas.length / 2)]
+
+    const bandas = lineYs.slice(0, -1).map(() => [])
+    const bandaDe = (y) => {
+      let i = 0
+      while (i < lineYs.length - 2 && y >= lineYs[i + 1]) i++
+      return i
+    }
+    items.forEach((it) => bandas[bandaDe(it.y)].push(it))
+
+    // Una banda mucho mas alta que lo tipico (foto real con brillo/sombra que
+    // borra 2-3 lineas seguidas -- visto probando contra fotos reales) puede
+    // esconder VARIAS filas de datos, no una: en vez de confiar ciegamente en
+    // que ahi "no hay mas lineas", se vuelve a partir esa banda con el gap
+    // heuristico de siempre (red de seguridad).
+    bandas.forEach((bandaItems, i) => {
+      if (bandaItems.length === 0) return
+      if (alturas[i] > alturaTipica * 1.6) {
+        rows.push(...clusterByGap([...bandaItems].sort((a, b) => a.y - b.y), rowGapY))
+      } else {
+        const y = bandaItems.reduce((sum, it) => sum + it.y, 0) / bandaItems.length
+        rows.push({ y, lastY: y, items: bandaItems })
+      }
+    })
+  } else {
+    rows = clusterByGap(items, rowGapY)
+  }
 
   rows.forEach((row) => {
     row.items.sort((a, b) => a.xStart - b.xStart)
@@ -60,8 +112,19 @@ function buildGrid(blocks, { rowGapY = 3.5, mergeGapX = 18, columnGapX = 45 } = 
     row.items = merged
   })
 
+  // Los anclajes de columna se arman por el CENTRO del texto, no por el borde
+  // izquierdo: en documentos reales el encabezado suele ir centrado en la
+  // columna ("AMBIENTES", corto) mientras el dato es mucho mas largo
+  // ("Departamento PB-A") y arranca mucho mas a la izquierda -- alineando por
+  // borde izquierdo esos dos terminan en columnas distintas y la columna de
+  // ambiente sale siempre vacia en las filas de datos. El centro, en cambio,
+  // es estable entre encabezado y dato (verificado contra OCR real: ~372px
+  // en las 8 celdas de una columna "ambiente", con el borde izquierdo
+  // variando entre 120 y 315).
+  const xCenterOf = (it) => (it.xStart + it.xEnd) / 2
+
   const allX = []
-  rows.forEach((row) => row.items.forEach((it) => allX.push(it.xStart)))
+  rows.forEach((row) => row.items.forEach((it) => allX.push(xCenterOf(it))))
   allX.sort((a, b) => a - b)
   const anchors = []
   allX.forEach((x) => {
@@ -71,10 +134,11 @@ function buildGrid(blocks, { rowGapY = 3.5, mergeGapX = 18, columnGapX = 45 } = 
   rows.forEach((row) => {
     const aligned = anchors.map(() => ({ text: '', confidence: 1 }))
     row.items.forEach((it) => {
+      const xCenter = xCenterOf(it)
       let closest = 0
-      let min = Math.abs(it.xStart - anchors[0])
+      let min = Math.abs(xCenter - anchors[0])
       for (let i = 1; i < anchors.length; i++) {
-        const d = Math.abs(it.xStart - anchors[i])
+        const d = Math.abs(xCenter - anchors[i])
         if (d < min) {
           min = d
           closest = i
@@ -145,10 +209,64 @@ function isHeaderRow(row) {
   return wordy.length / filled.length >= 0.6
 }
 
+// Ignora el digito de la unidad ("m2", "m²") -- si no, un encabezado como
+// "SUPERFICIE PRIVADA (m2)" cuenta como si ya tuviera un numero de dato.
+const rowTieneDigitos = (row) => row.cells.some((c) => hasDigits(c.text.replace(/m2|m²/gi, '')))
+
+// "Ruido" institucional: sello/membrete de la Alcaldia superpuesto sobre la
+// hoja (membrete, direccion, telefonos). El OCR lo lee como si fueran filas
+// mas de la tabla; se descartan por patron antes de armar las filas de datos.
+const NOISE_RE = [
+  /GOBIERNO\s*AUTONOMO\s*MUNICIPAL/,
+  /ALCALDIA/,
+  /SECRETARIA\s*GENERAL/,
+  /PLAZA\s*DE\s*ARMAS/,
+  /CENTRAL\s*PILOTO/,
+  /\bTELF\b/,
+  /\bTEL\.?\s*\d/,
+  /\bWWW\b/,
+  /\bHTTP/,
+]
+
+function isNoiseRow(row) {
+  const text = norm(row.cells.map((c) => c.text).join(' '))
+  if (!text) return false
+  return NOISE_RE.some((re) => re.test(text))
+}
+
+// Paginas reales de GAMC traen VARIAS tablitas "RELACION DE SUPERFICIE"
+// apiladas en una misma foto (una por NIVEL/PLANTA), cada una con su propio
+// encabezado repetido ("NIVEL | AMBIENTES | SUPERFICIE PRIVADA | ..."). El
+// encabezado de la PRIMERA tabla ya lo saca `headerEnd` mas abajo; esto
+// detecta esos MISMOS encabezados cuando se repiten mas adelante en la
+// pagina (2da, 3ra tabla...) para descartarlos -- si no, se leen como filas
+// sin numeros y el merge de celdas partidas (mas abajo) los pega sobre la
+// fila de datos siguiente, arruinando todo lo que viene despues.
+//
+// A proposito NO se reusa `isHeaderRow` (esa es "la mayoria de celdas son
+// palabras sin numero", que TAMBIEN es cierto para un ambiente partido en
+// varias lineas como "HALL + ASCENSOR + GRADA" -- hay que ser mas estricto
+// y pedir vocabulario de encabezado real, no cualquier fila de puro texto.
+const HEADER_KEYWORDS_RE = /\bAMBIENTES?\b|\bNIVEL\b|\bSUPERFICIE\b[\s\S]*\b(PRIVADA|COMUN|IDEAL|CONSTRUIDA|LIBRE|TOTAL)\b/
+
+function isRepeatedHeaderRow(row) {
+  const filled = row.cells.filter((c) => c.text.trim())
+  if (filled.length === 0) return false
+  const texto = norm(filled.map((c) => c.text).join(' '))
+  if (HEADER_KEYWORDS_RE.test(texto)) return true
+  // sub-encabezado "Construida | Libre | Construida | Libre": ninguna fila de
+  // ambiente real repite esas dos palabras sueltas en mas de una celda.
+  const subHeader = filled.filter((c) => /^(CONSTRUIDA|LIBRE)$/.test(norm(c.text))).length
+  return subHeader >= 2
+}
+
 // ---------- 4. deteccion de plantas / totales ----------
 
+// "PLANTA\d*"/"PISO\d*" (en vez de una palabra suelta): el OCR a veces pega el
+// numero de piso sin espacio ("PLANTA5° PISO"), y un \b comun despues de
+// "PLANTA" nunca matchea ahi (no hay limite de palabra entre letra y digito).
 const PLANTA_RE =
-  /^(PLANTA|PISO|NIVEL|SEMI\s?SOTANO|SEMISOTANO|SOTANO|SUBSUELO|SUB\s?SUELO|MEZZANINE|ENTREPISO|CUBIERTA|AZOTEA|TERRAZA|PLANTA BAJA|PB)\b/
+  /^(PLANTA\d*|PISO\d*|NIVEL|SEMI\s?SOTANO|SEMISOTANO|SOTANO|SUBSUELO|SUB\s?SUELO|MEZZANINE|ENTREPISO|CUBIERTA|AZOTEA|TERRAZA|PB)\b/
 
 const TOTAL_RE = /^(SUP\.?\s*TOTAL|SUPERFICIE\s*TOTAL|TOTAL(ES)?|SUBTOTAL)\b/
 
@@ -158,21 +276,34 @@ const RESUMEN_RE = /(RESUMEN\s*GENERAL|CUADRO\s*GENERAL)/
 
 /**
  * @param {Array} blocks  bloques OCR de UNA pagina: { points, text, confidence }
+ * @param {{ lineYs?: number[] }} [opts]  limites de fila reales (ver buildGrid)
  * @returns {{
  *   columnCount: number,
  *   columnRoles: string[],     // rol sugerido por columna
  *   rows: Array<{ id: string, planta: string, cells: Array<{text,confidence}> }>
  * }}
  */
-export function parseSuperficiesPage(blocks) {
-  const grid = buildGrid(blocks)
+export function parseSuperficiesPage(blocks, opts = {}) {
+  const grid = buildGrid(blocks, { lineYs: opts.lineYs || [] })
   if (grid.columnCount === 0) return { columnCount: 0, columnRoles: [], rows: [] }
+  grid.rows = grid.rows.filter((row) => !isNoiseRow(row))
 
   // Filas de encabezado = las primeras consecutivas que parecen encabezado.
   let headerEnd = 0
   while (headerEnd < grid.rows.length && headerEnd < 4 && isHeaderRow(grid.rows[headerEnd])) {
     headerEnd++
   }
+  // El encabezado real de GAMC suele venir partido en MUCHAS filas sueltas
+  // (cada palabra/sub-titulo del grupo "SUPERFICIE PRIVADA / CONSTRUIDA /
+  // LIBRE" cae en su propia banda de Y) -- si supera el limite de 4 de
+  // arriba, el resto se leeria como filas de datos. Se mira hacia adelante
+  // hasta la primera fila con un numero (ahi sí empieza a haber datos) y, si
+  // en el medio aparece vocabulario real de encabezado en cualquier fila (no
+  // hace falta que este en TODAS, porque el OCR las corta demasiado chico),
+  // se da por hecho que todo ese tramo sigue siendo encabezado.
+  let candidato = headerEnd
+  while (candidato < grid.rows.length && candidato < 20 && !rowTieneDigitos(grid.rows[candidato])) candidato++
+  if (grid.rows.slice(headerEnd, candidato).some(isRepeatedHeaderRow)) headerEnd = candidato
 
   // Texto de encabezado combinado por columna (junta el titulo de grupo
   // "SUPERFICIE PRIVADA" con el sub "CONSTRUIDA/LIBRE").
@@ -272,9 +403,33 @@ export function parseSuperficiesPage(blocks) {
 
   const plantaColIdx = columnRoles.indexOf('planta_col')
 
+  // Columnas de superficie (para detectar filas-fragmento: una celda de
+  // ambiente escrita en varias lineas se agrupa por posicion en varias filas
+  // "fantasma" que no traen ningun numero al lado).
+  const surfaceIdxs = columnRoles
+    .map((role, i) => (SURFACE.has(role) ? i : -1))
+    .filter((i) => i >= 0)
+  const rowTieneNumero = (cells) => surfaceIdxs.some((i) => hasDigits(cells[i]?.text || ''))
+
   const rows = []
   let plantaActual = ''
   let corte = false // al llegar al bloque "RESUMEN GENERAL" se ignora el resto
+  let fragmentoPendiente = '' // texto de fila(s) sin numeros, a la espera de la fila con datos
+
+  // Pega el fragmento pendiente (si hay) al ambiente de la ultima fila ya
+  // agregada, para no perderlo cuando no aparece ninguna fila de datos
+  // despues (p.ej. si el fragmento es lo ultimo antes de un corte de seccion).
+  const flushFragmentoAFilaAnterior = () => {
+    if (!fragmentoPendiente || rows.length === 0) {
+      fragmentoPendiente = ''
+      return
+    }
+    const last = rows[rows.length - 1]
+    last.cells = last.cells.map((c, i) =>
+      i === ambienteIdx ? { ...c, text: `${c.text} ${fragmentoPendiente}`.trim() } : c,
+    )
+    fragmentoPendiente = ''
+  }
 
   for (let r = headerEnd; r < grid.rows.length && !corte; r++) {
     const cells = grid.rows[r].cells
@@ -283,10 +438,23 @@ export function parseSuperficiesPage(blocks) {
       cells.filter((c, i) => i !== ambienteIdx && c.text.trim()).length === 0
 
     if (RESUMEN_RE.test(primeraTxt)) {
+      flushFragmentoAFilaAnterior()
       corte = true
       break
     }
-    if (TOTAL_RE.test(primeraTxt)) continue // fila de totales -> se descarta
+    if (TOTAL_RE.test(primeraTxt)) {
+      flushFragmentoAFilaAnterior()
+      continue // fila de totales -> se descarta
+    }
+
+    // Encabezado de una tabla siguiente (2da, 3ra... NIVEL/PLANTA en la misma
+    // pagina): se descarta ANTES de tocar planta_col/fragmentos, porque si no
+    // la palabra "NIVEL" del propio encabezado pisaria `plantaActual` via
+    // Layout B de abajo.
+    if (isRepeatedHeaderRow(grid.rows[r])) {
+      flushFragmentoAFilaAnterior()
+      continue
+    }
 
     // Layout B: columna "NIVEL" con el nombre de la planta (celda fusionada ->
     // viene solo en la 1a fila del bloque; se arrastra hacia abajo).
@@ -296,7 +464,13 @@ export function parseSuperficiesPage(blocks) {
     }
 
     // Layout A: fila que SOLO trae "PLANTA X PISO" (marca de seccion) -> fija la
-    // planta y no es una fila de datos.
+    // planta y no es una fila de datos. A proposito NO se vacia el fragmento
+    // pendiente acá: esta marca suele quedar centrada verticalmente en su
+    // celda fusionada y caer POSICIONALMENTE en el medio de un ambiente
+    // partido en varias lineas (ej. "HALL+ASCENSOR+" / "PLANTA BAJA" /
+    // "+SALA COPROPIETARIOS") -- si se vaciara acá se cortaria ese ambiente a
+    // la mitad y el resto se pegaria sobre el ambiente siguiente, que no
+    // tiene nada que ver.
     if (soloPrimera && PLANTA_RE.test(primeraTxt)) {
       plantaActual = cells[ambienteIdx >= 0 ? ambienteIdx : 0].text.trim()
       continue
@@ -305,12 +479,31 @@ export function parseSuperficiesPage(blocks) {
     const ambienteTxt = (cells[ambienteIdx >= 0 ? ambienteIdx : 0]?.text || '').trim()
     if (!ambienteTxt) continue // fila vacia
 
+    // Fila-fragmento: una celda de ambiente escrita en varias lineas (p.ej.
+    // "HALL + ASCENSOR + GRADA + SHAFT + BAÑOS H y M") se corta en varias filas
+    // por posicion vertical. Si esta fila no trae NINGUN numero de superficie,
+    // no es una fila de datos propia: se guarda su texto y se pega a la
+    // proxima fila que si traiga numeros.
+    if (!rowTieneNumero(cells)) {
+      fragmentoPendiente = fragmentoPendiente ? `${fragmentoPendiente} ${ambienteTxt}` : ambienteTxt
+      continue
+    }
+
+    const ambienteFinal = fragmentoPendiente ? `${fragmentoPendiente} ${ambienteTxt}` : ambienteTxt
+    fragmentoPendiente = ''
+
     rows.push({
       id: `f-${r}`,
       planta: plantaActual,
-      cells,
+      // "Bloque"/torre (columna B de Hoja2): la tabla de "RELACION DE
+      // SUPERFICIE" no trae una marca propia para esto (a diferencia de
+      // "PLANTA X PISO"), asi que arranca vacio y lo completa el usuario a
+      // mano en la tabla, igual que corrige la Planta cuando hace falta.
+      bloque: '',
+      cells: cells.map((c, i) => (i === ambienteIdx ? { ...c, text: ambienteFinal } : c)),
     })
   }
+  flushFragmentoAFilaAnterior()
 
   return { columnCount: grid.columnCount, columnRoles, rows }
 }

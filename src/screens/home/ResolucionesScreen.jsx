@@ -18,17 +18,6 @@ import scanService from '../../services/scanService';
 import { redimensionarImagen } from '../../utils/redimensionarImagen';
 import resolucionesService from '../../services/resolucionesService';
 
-// Lee el tamaño de una imagen para decidir si rotarla (fotos apaisadas).
-function getImageDimensions(uri) {
-  return new Promise((resolve) => {
-    Image.getSize(
-      uri,
-      (width, height) => resolve({ width, height }),
-      () => resolve({ width: 0, height: 1 }),
-    );
-  });
-}
-
 const ESTADOS = {
   pendiente_ocr: { label: 'Pendiente', color: palette.warning },
   en_proceso: { label: 'En proceso', color: palette.primaryDeep },
@@ -94,9 +83,13 @@ const ResolucionesScreen = () => {
       const preparadas = [];
       for (const uri of nuevas) {
         try {
-          const { width, height } = await getImageDimensions(uri);
-          const rotation = width > height ? 90 : 0;
-          const resized = await redimensionarImagen(uri, { rotation });
+          // Sin rotacion adivinada: PhotoCropModal (dentro de scanService) ya
+          // deja la foto con su orientacion correcta (normaliza el EXIF antes
+          // de recortar). Forzar 90° acá según ancho/alto era un parche del
+          // flujo viejo (con el crop de expo-image-picker) y hoy le pega mal a
+          // cualquier foto apaisada real -- una mesa/tabla fotografiada con el
+          // celular de costado terminaba girada 90° antes de subirla.
+          const resized = await redimensionarImagen(uri);
           preparadas.push(resized?.uri || uri);
         } catch (e) {
           preparadas.push(uri);

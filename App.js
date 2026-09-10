@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,6 +15,8 @@ import {
 
 import { Navigations } from './src/navigation/Navigations';
 import { palette } from './src/utils/theme';
+import PhotoCropModal from './src/components/PhotoCropModal';
+import { setPhotoCropOpener } from './src/utils/photoCropController';
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -23,6 +25,11 @@ export default function App() {
     Poppins_600SemiBold,
     Poppins_700Bold,
   });
+
+  const cropModalRef = useRef(null);
+  useEffect(() => {
+    setPhotoCropOpener((uri) => cropModalRef.current?.open(uri));
+  }, []);
 
   // Si las fuentes no cargan aun (o fallan), se muestra un fondo neutro y luego
   // la app; nunca se bloquea el arranque.
@@ -36,6 +43,7 @@ export default function App() {
         <PaperProvider>
           <StatusBar style="auto" />
           <Navigations />
+          <PhotoCropModal ref={cropModalRef} />
         </PaperProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

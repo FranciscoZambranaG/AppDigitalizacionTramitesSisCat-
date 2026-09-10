@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
-import { FileText, FolderOpen } from 'lucide-react'
+import { FileText, FolderOpen, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Alert, Card, EmptyState, SectionHeader, Spinner } from '@/shared/ui'
 import { resolucionesApi } from '@/domains/resoluciones/api/resoluciones.api'
 import { EstadoBadge } from '@/domains/resoluciones/components/EstadoBadge'
+import { Alert, Button, Card, EmptyState, SectionHeader, Spinner } from '@/shared/ui'
 
 function fecha(iso) {
   if (!iso) return ''
@@ -22,19 +22,29 @@ function fecha(iso) {
 export default function ListaResolucionesPage() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refrescando, setRefrescando] = useState(false)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    let alive = true
-    resolucionesApi
+  // `mostrarSpinnerCompleto` solo para la primera carga: al refrescar a mano
+  // se deja la lista actual visible (con el botón en "loading") en vez de
+  // taparla con el spinner grande, para no perder el scroll/contexto.
+  const cargar = useCallback((mostrarSpinnerCompleto) => {
+    if (mostrarSpinnerCompleto) setLoading(true)
+    else setRefrescando(true)
+    setError(null)
+    return resolucionesApi
       .listar()
-      .then((data) => alive && setItems(data))
-      .catch((e) => alive && setError(e.message))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+      .then((data) => setItems(data))
+      .catch((e) => setError(e.message))
+      .finally(() => {
+        setLoading(false)
+        setRefrescando(false)
+      })
   }, [])
+
+  useEffect(() => {
+    cargar(true)
+  }, [cargar])
 
   return (
     <Card className="animate-card-in">
@@ -42,7 +52,12 @@ export default function ListaResolucionesPage() {
         icon={FolderOpen}
         eyebrow="Módulo Resoluciones"
         title="Mis resoluciones"
-        subtitle="Se escanean desde la app móvil. Acá extraés la tabla de superficies y generás la Hoja2."
+        subtitle="Se escanean desde la app móvil. Acá extraés la tabla de superficies y generás el excel."
+        actions={
+          <Button variant="secondary" size="sm" icon={RefreshCw} loading={refrescando} onClick={() => cargar(false)}>
+            Actualizar
+          </Button>
+        }
       />
 
       {loading ? (
@@ -55,7 +70,7 @@ export default function ListaResolucionesPage() {
         <EmptyState
           icon={FileText}
           title="Todavía no hay resoluciones"
-          subtitle="Subí una desde el apartado Resoluciones de la app móvil y va a aparecer acá."
+          subtitle="Subí una desde el apartado Resoluciones de la aplicacion movil y va a aparecer acá."
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

@@ -1,17 +1,20 @@
+import { ArrowLeft, Bug, FileSpreadsheet, Landmark, Save, ScanText, Table2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, FileSpreadsheet, ScanText, Save, Table2 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'react-toastify'
 
 import { ENV } from '@/core/config'
-import { Alert, Button, Card, SectionHeader, Spinner } from '@/shared/ui'
 import { ocrImagen, resolucionesApi } from '@/domains/resoluciones/api/resoluciones.api'
 import { EstadoBadge } from '@/domains/resoluciones/components/EstadoBadge'
 import { TablaSuperficies } from '@/domains/resoluciones/components/TablaSuperficies'
-import { parseSuperficiesPage } from '@/domains/resoluciones/utils/superficiesOcrParser'
 import { construirFilas, descargarBlob, fillHoja2 } from '@/domains/resoluciones/utils/hoja2Excel'
+import { parseSuperficiesPage } from '@/domains/resoluciones/utils/superficiesOcrParser'
+import { detectarYEnderezarTabla } from '@/domains/resoluciones/utils/tableLineDetector'
+import { Alert, Button, Card, Input, SectionHeader, Spinner } from '@/shared/ui'
 
 const PLANTILLA_URL = '/plantilla-ph.xlsm'
+
+const DATOS_GENERALES_VACIO = { codigoCatastral: '', edificio: '', propietario: '' }
 
 export default function ResolucionPage() {
   const { id } = useParams()
@@ -24,8 +27,22 @@ export default function ResolucionPage() {
   const [paginasTabla, setPaginasTabla] = useState(null)
   const [ocrEnCurso, setOcrEnCurso] = useState(false)
   const [ocrError, setOcrError] = useState(null)
+  // Bloques crudos del OCR por página, para el botón "Descargar diagnóstico
+  // OCR" — así se puede mandar el archivo directo en vez de copiar a mano de
+  // la consola del navegador (que además solo lo muestra colapsado).
+  const [diagnosticoOcr, setDiagnosticoOcr] = useState(null)
   const [guardando, setGuardando] = useState(false)
   const [generando, setGenerando] = useState(false)
+
+  // Datos generales del edificio (Código Catastral, nombre del edificio,
+  // propietario/os): no salen de la tabla "RELACIÓN DE SUPERFICIE" escaneada
+  // -- viven en Hoja1 de la plantilla, una hoja de datos aparte con varias
+  // fórmulas encadenadas a otras hojas. Se decidió con el usuario (2026-09-09)
+  // NO tocar Hoja1 desde acá: por ahora estos 3 campos solo quedan guardados
+  // en el sistema (dentro del mismo JSON opaco "tabla" que ya guarda las
+  // páginas) para tenerlos a mano, y se transcriben a mano al Excel.
+  const [datosGenerales, setDatosGenerales] = useState(DATOS_GENERALES_VACIO)
+  const [guardandoDatos, setGuardandoDatos] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -36,6 +53,9 @@ export default function ResolucionPage() {
         if (!alive) return
         setResolucion(detalle)
         if (detalle.tabla?.paginas) setPaginasTabla(detalle.tabla.paginas)
+        if (detalle.tabla?.datosGenerales) {
+          setDatosGenerales({ ...DATOS_GENERALES_VACIO, ...detalle.tabla.datosGenerales })
+        }
 
         const imgs = []
         for (const p of detalle.paginas) {
@@ -62,18 +82,28 @@ export default function ResolucionPage() {
     setOcrError(null)
     try {
       const out = []
+      const diag = []
       for (const img of paginasImg) {
-        const bloques = await ocrImagen(img.blob, `pagina_${img.orden}.jpg`)
-        const parsed = parseSuperficiesPage(bloques)
-        // Para diagnóstico: copiar de la consola del navegador y pasarlo si la
-        // detección de columnas sale mal.
+        // Endereza por perspectiva usando los propios bordes de la tabla y
+        // detecta sus líneas de fila; si la foto no tiene bordes de tabla
+        // detectables, devuelve la imagen tal cual y lineYs vacío (el parser
+        // cae a su heurístico de gap de siempre).
+        const { blob: blobCorregido, lineYs, corregido } = await detectarYEnderezarTabla(img.blob)
+        const bloques = await ocrImagen(blobCorregido, `pagina_${img.orden}.jpg`)
+        const parsed = parseSuperficiesPage(bloques, { lineYs })
+        // Para diagnóstico: "Descargar diagnóstico OCR" (abajo) baja esto
+        // como archivo si la detección de columnas sale mal.
+        // eslint-disable-next-line no-console
+        console.log(`[OCR] página ${img.orden} — deskew`, { corregido, lineYs })
         // eslint-disable-next-line no-console
         console.log(`[OCR] página ${img.orden} — bloques crudos`, bloques)
         // eslint-disable-next-line no-console
         console.log(`[OCR] página ${img.orden} — parseado`, parsed)
         out.push({ pagina: img.orden, ...parsed })
+        diag.push({ pagina: img.orden, corregido, lineYs, bloques, parseado: parsed })
       }
       setPaginasTabla(out)
+      setDiagnosticoOcr(diag)
       toast.success('OCR terminado. Revisá las columnas y las celdas en rojo.')
     } catch (e) {
       setOcrError(
@@ -110,19 +140,47 @@ export default function ResolucionPage() {
       rows: p.rows.map((row) => (row.id === rowId ? { ...row, planta: text } : row)),
     }))
 
+  const onBloqueChange = (pageIdx, rowId, text) =>
+    upd(pageIdx, (p) => ({
+      ...p,
+      rows: p.rows.map((row) => (row.id === rowId ? { ...row, bloque: text } : row)),
+    }))
+
   const onDeleteRow = (pageIdx, rowId) =>
     upd(pageIdx, (p) => ({ ...p, rows: p.rows.filter((row) => row.id !== rowId) }))
+
+  const descargarDiagnosticoOcr = () => {
+    const blob = new Blob([JSON.stringify(diagnosticoOcr, null, 2)], { type: 'application/json' })
+    descargarBlob(blob, `ocr_diagnostico_${resolucion.nro_resolucion.replace(/\W+/g, '_')}.json`)
+  }
 
   const guardar = async (estado) => {
     setGuardando(true)
     try {
-      const actualizada = await resolucionesApi.guardarTabla(id, { paginas: paginasTabla }, estado)
+      const actualizada = await resolucionesApi.guardarTabla(id, { paginas: paginasTabla, datosGenerales }, estado)
       setResolucion(actualizada)
       toast.success('Guardado.')
     } catch (e) {
       toast.error(e.message)
     } finally {
       setGuardando(false)
+    }
+  }
+
+  const guardarDatosGenerales = async () => {
+    setGuardandoDatos(true)
+    try {
+      const actualizada = await resolucionesApi.guardarTabla(
+        id,
+        { paginas: paginasTabla, datosGenerales },
+        resolucion.estado,
+      )
+      setResolucion(actualizada)
+      toast.success('Datos generales guardados.')
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setGuardandoDatos(false)
     }
   }
 
@@ -138,7 +196,7 @@ export default function ResolucionPage() {
         if (!r.ok) throw new Error('No se encontró la plantilla (public/plantilla-ph.xlsm).')
         return r.arrayBuffer()
       })
-      const blob = fillHoja2(buf, filas)
+      const blob = await fillHoja2(buf, filas)
       descargarBlob(blob, `hoja2_${resolucion.nro_resolucion.replace(/\W+/g, '_')}.xlsm`)
       await guardar('listo')
     } catch (e) {
@@ -196,12 +254,51 @@ export default function ResolucionPage() {
           ))}
         </div>
 
-        <div className="mt-5">
+        <div className="mt-5 flex flex-wrap gap-3">
           <Button icon={ScanText} onClick={extraerOcr} loading={ocrEnCurso}>
             {paginasTabla ? 'Volver a extraer con OCR' : 'Extraer con OCR'}
           </Button>
+          {diagnosticoOcr && (
+            <Button variant="secondary" icon={Bug} onClick={descargarDiagnosticoOcr}>
+              Descargar diagnóstico OCR
+            </Button>
+          )}
         </div>
         <Alert className="mt-3">{ocrError}</Alert>
+      </Card>
+
+      <Card className="animate-card-in">
+        <SectionHeader
+          icon={Landmark}
+          eyebrow="Plano de división"
+          title="Datos generales del edificio"
+          subtitle="No salen del escaneo de la tabla — se transcriben a mano mirando el plano aprobado (sello, código catastral, propietarios)."
+        />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Input
+            label="Código catastral"
+            placeholder="00-000-000-0-00-000-000"
+            value={datosGenerales.codigoCatastral}
+            onChange={(e) => setDatosGenerales((prev) => ({ ...prev, codigoCatastral: e.target.value }))}
+          />
+          <Input
+            label="Edificio / Proyecto"
+            placeholder='Ej. Edificio "Don Juan"'
+            value={datosGenerales.edificio}
+            onChange={(e) => setDatosGenerales((prev) => ({ ...prev, edificio: e.target.value }))}
+          />
+          <Input
+            label="Propietario(s)"
+            placeholder="Nombre completo"
+            value={datosGenerales.propietario}
+            onChange={(e) => setDatosGenerales((prev) => ({ ...prev, propietario: e.target.value }))}
+          />
+        </div>
+        <div className="mt-4">
+          <Button variant="secondary" icon={Save} onClick={guardarDatosGenerales} loading={guardandoDatos}>
+            Guardar datos generales
+          </Button>
+        </div>
       </Card>
 
       {paginasTabla && (
@@ -218,6 +315,7 @@ export default function ResolucionPage() {
               onRoleChange={onRoleChange}
               onCellChange={onCellChange}
               onPlantaChange={onPlantaChange}
+              onBloqueChange={onBloqueChange}
               onDeleteRow={onDeleteRow}
             />
           </div>

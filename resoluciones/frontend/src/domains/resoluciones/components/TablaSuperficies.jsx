@@ -10,9 +10,11 @@ const inputCls =
 /**
  * Tabla editable de la "RELACION DE SUPERFICIE" reconstruida por OCR (por
  * posicion). Los <select> de rol vienen pre-seleccionados por el parser; las
- * celdas de baja confianza salen en rojo; la Planta es texto libre por fila.
+ * celdas de baja confianza salen en rojo; Planta y Bloque son texto libre por
+ * fila (ninguna de las dos se detecta del OCR: Planta se completa sola cuando
+ * la tabla trae "PLANTA X PISO", Bloque siempre la escribe el usuario).
  */
-export function TablaSuperficies({ paginas, onRoleChange, onCellChange, onPlantaChange, onDeleteRow }) {
+export function TablaSuperficies({ paginas, onRoleChange, onCellChange, onPlantaChange, onBloqueChange, onDeleteRow }) {
   return (
     <div className="flex flex-col gap-8">
       {paginas.map((pagina, pageIdx) => (
@@ -25,6 +27,9 @@ export function TablaSuperficies({ paginas, onRoleChange, onCellChange, onPlanta
               <tr>
                 <th className="rounded-tl-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs font-semibold text-slate-600">
                   Planta
+                </th>
+                <th className="border border-l-0 border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs font-semibold text-slate-600">
+                  Bloque
                 </th>
                 {Array.from({ length: pagina.columnCount }).map((_, colIdx) => (
                   <th key={colIdx} className="border border-l-0 border-slate-200 bg-slate-50 px-2 py-1.5">
@@ -53,6 +58,14 @@ export function TablaSuperficies({ paginas, onRoleChange, onCellChange, onPlanta
                       value={row.planta || ''}
                       placeholder="Planta"
                       onChange={(e) => onPlantaChange(pageIdx, row.id, e.target.value)}
+                    />
+                  </td>
+                  <td className="border border-l-0 border-t-0 border-slate-200 px-1.5 py-1">
+                    <input
+                      className={cn(inputCls, 'w-24')}
+                      value={row.bloque || ''}
+                      placeholder="Bloque"
+                      onChange={(e) => onBloqueChange(pageIdx, row.id, e.target.value)}
                     />
                   </td>
                   {row.cells.map((cell, cellIdx) => {
